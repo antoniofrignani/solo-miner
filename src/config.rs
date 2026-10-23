@@ -19,6 +19,8 @@ pub struct Config {
     pub bitcoin_address: String,
     #[serde(default = "default_gpu_load")]
     pub gpu_load: u8,
+    #[serde(default)]
+    pub gpu_profile: GpuProfile,
     #[serde(default = "default_share_difficulty")]
     pub share_difficulty: f64,
     #[serde(default)]
@@ -35,6 +37,7 @@ impl Default for Config {
             pool: Pool::default(),
             bitcoin_address: String::new(),
             gpu_load: default_gpu_load(),
+            gpu_profile: GpuProfile::default(),
             share_difficulty: default_share_difficulty(),
             notifications: NotificationSettings::default(),
             appearance: Appearance::default(),
@@ -290,6 +293,7 @@ impl Config {
         self.pool != other.pool
             || self.bitcoin_address != other.bitcoin_address
             || self.gpu_load != other.gpu_load
+            || self.gpu_profile != other.gpu_profile
             || self.share_difficulty != other.share_difficulty
     }
 }
@@ -317,6 +321,57 @@ mod appearance_tests {
         assert_eq!(config.bitcoin_address, previous.bitcoin_address);
         config.gpu_load = 37;
         assert!(previous.mining_changed(&config));
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuProfile {
+    Responsive,
+    #[default]
+    Balanced,
+    Throughput,
+}
+impl GpuProfile {
+    pub const ALL: [Self; 3] = [Self::Responsive, Self::Balanced, Self::Throughput];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Responsive => "Responsive",
+            Self::Balanced => "Balanced",
+            Self::Throughput => "Throughput",
+        }
+    }
+    pub fn batch_size(self) -> u32 {
+        match self {
+            Self::Responsive => 65_536,
+            Self::Balanced => 262_144,
+            Self::Throughput => 1_048_576,
+        }
+    }
+}
+
+#[cfg(test)]
+mod gpu_profile_tests {
+    use super::*;
+    #[test]
+    fn workload_migrates_and_restarts_only_when_changed() -> Result<()> {
+        let old: Config = toml::from_str("version=1\npool='public_pool'\ngpu_load=75")?;
+        assert_eq!(old.gpu_profile, GpuProfile::Balanced);
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("config.toml");
+        for profile in GpuProfile::ALL {
+            let mut next = old.clone();
+            next.gpu_profile = profile;
+            next.save(&path)?;
+            assert_eq!(Config::load(&path)?, next);
+            assert_eq!(old.mining_changed(&next), profile != old.gpu_profile);
+            assert_eq!(next.gpu_load, 75);
+        }
+        assert!(
+            toml::from_str::<Config>("version=1\npool='public_pool'\ngpu_profile='unknown'")
+                .is_err()
+        );
         Ok(())
     }
 }

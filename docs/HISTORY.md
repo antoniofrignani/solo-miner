@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Cached SHA-256 midstates and compact GPU candidate output.
+- Responsive, Balanced and Throughput workloads, saved independently of duty cycle.
+- Workload-aware benchmark and automatic restart when the profile changes.
+- GPU tests for compact output overflow, header changes and nonce boundaries.
+
 ## 0.5.3
 
 - Added the app icon to the macOS bundle for notifications and system dialogs.

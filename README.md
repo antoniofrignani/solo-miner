@@ -23,6 +23,20 @@ Saving changes to the wallet, pool, difficulty or duty cycle restarts mining. Ap
 
 The duty cycle controls GPU batches and pauses, in 5% increments in the interface. It does not set a power or temperature limit. The pool assigns the actual share difficulty. Block candidates are checked on the CPU before submission; acceptance and rewards depend on the pool and network.
 
+## GPU workload
+
+**Mining & wallet → GPU workload** selects the batch size:
+
+| Profile | Nonces per batch | Use |
+| --- | ---: | --- |
+| Responsive | 65,536 | Shorter stop and job-update latency |
+| Balanced (default) | 262,144 | Moderate batch size |
+| Throughput | 1,048,576 | Fewer CPU/GPU synchronizations |
+
+Save the profile to apply it; active mining restarts automatically. The benchmark uses the selected profile and duty cycle without saving them. Workload changes do not set GPU clocks or a watt limit. Power and performance depend on the Mac, other workloads and thermal conditions.
+
+The engine caches the SHA-256 midstate of each header and returns only matching nonces from the GPU. Every submitted candidate is still checked on the CPU. [Measurements and test coverage](docs/performance.md).
+
 ## Build
 
 Requires an Apple Silicon Mac, Rust stable and Xcode Command Line Tools.
@@ -38,6 +52,7 @@ cargo run -- --check                # Settings path and values
 cargo run -- --options              # Open settings
 cargo run -- --resume-mining        # Start mining
 cargo run --release -- --gpu-check  # GPU self-test and benchmark
+cargo run --release -- --gpu-profile  # Compare workloads at 100% duty, without pool connections
 ```
 
 Settings are stored in `config.toml` in the app's user directory; `--check` prints the path. The `activity.jsonl` log is in the same directory. Hashrate history and session counters are kept in memory.
@@ -52,14 +67,15 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Regular tests do not contact external pools. Two additional tests are available on macOS:
+Regular tests do not contact external pools. Hardware and network tests are available on macOS:
 
 ```sh
+cargo test --locked metal_profiles_match_cpu_and_preserve_overflow -- --ignored --nocapture
 cargo test --locked gpu_to_stratum_share -- --ignored --nocapture
 cargo test --locked solopool_live_difficulty_handshake -- --ignored --nocapture
 ```
 
-The first requires a Metal GPU and uses a local Stratum server. The second checks the SoloPool handshake using saved settings, without submitting shares.
+The first checks GPU hashes, compact output overflow and nonce boundaries against CPU results for every workload profile. The second requires a Metal GPU and uses a local Stratum server. The third checks the SoloPool handshake using saved settings, without submitting shares.
 
 ## GitHub Actions
 

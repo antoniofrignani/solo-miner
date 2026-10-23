@@ -1,6 +1,6 @@
 use crate::{
     activity::Journal,
-    config::{Appearance, Config, Palette, ThemeMode, validate_address},
+    config::{Appearance, Config, GpuProfile, Palette, ThemeMode, validate_address},
     lifecycle::{Lifecycle, Work},
     miner::{self, MinerEvent, Stats},
     notifications::Notifications,
@@ -77,8 +77,9 @@ struct Desktop {
     journal: Journal,
     logo: egui::TextureHandle,
     message: String,
-    benchmark_result: Option<(u8, f64)>,
+    benchmark_result: Option<(u8, GpuProfile, f64)>,
     benchmark_load: u8,
+    benchmark_profile: GpuProfile,
     quitting: bool,
 }
 impl Desktop {
@@ -137,6 +138,7 @@ impl Desktop {
             message: String::new(),
             benchmark_result: None,
             benchmark_load: 25,
+            benchmark_profile: GpuProfile::default(),
             quitting: false,
         };
         app.log("App", concat!("Solo Miner ", env!("CARGO_PKG_VERSION")));
@@ -161,6 +163,7 @@ impl Desktop {
         if self.worker.is_some() {
             return;
         }
+        self.message.clear();
         self.lifecycle.launched(kind);
         let sender = self.tx.clone();
         let wake = self.context.clone();
@@ -297,6 +300,7 @@ impl Desktop {
         match self.read_draft() {
             Ok(config) => {
                 self.benchmark_load = config.gpu_load;
+                self.benchmark_profile = config.gpu_profile;
                 self.benchmark_result = None;
                 self.launch(Work::Benchmark, config);
             }
@@ -363,8 +367,11 @@ impl Desktop {
                     }
                     if self.lifecycle.work == Some(Work::Benchmark) && stats.hashes_per_second > 0.0
                     {
-                        self.benchmark_result =
-                            Some((self.benchmark_load, stats.hashes_per_second));
+                        self.benchmark_result = Some((
+                            self.benchmark_load,
+                            self.benchmark_profile,
+                            stats.hashes_per_second,
+                        ));
                     }
                     if self.lifecycle.work == Some(Work::Mining) {
                         let now = self.launched.elapsed().as_secs_f64();
@@ -789,8 +796,10 @@ impl Desktop {
                 note(
                     ui,
                     format!(
-                        "{} · {} block candidates",
-                        self.stats.gpu, self.stats.block_candidates
+                        "{} · {} · {} block candidates",
+                        self.stats.gpu,
+                        self.config.gpu_profile.label(),
+                        self.stats.block_candidates
                     ),
                     c,
                 );
@@ -940,6 +949,17 @@ impl Desktop {
                         .color(c.accent_text)
                         .strong(),
                 );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    egui::ComboBox::from_id_salt("gpu_profile")
+                        .selected_text(self.draft.gpu_profile.label())
+                        .width(132.0)
+                        .show_ui(ui, |ui| {
+                            for profile in GpuProfile::ALL {
+                                ui.selectable_value(&mut self.draft.gpu_profile, profile, profile.label());
+                            }
+                        }).response.on_hover_text("Batch size: smaller for responsiveness, larger for throughput. Independent of duty cycle.");
+                    ui.label("GPU workload");
+                });
             });
             duty_slider(ui, &mut self.draft.gpu_load, c);
         });
@@ -976,13 +996,14 @@ impl Desktop {
                         }
                     });
                 });
-                if let Some((load, value)) = self.benchmark_result {
+                if let Some((load, profile, value)) = self.benchmark_result {
                     ui.label(
-                        RichText::new(format!("{}  ·  duty cycle {}%", tray::rate(value), load))
+                        RichText::new(tray::rate(value))
                             .size(20.0)
                             .color(c.accent_text)
                             .strong(),
                     );
+                    note(ui, format!("{}% duty · {}", load, profile.label()), c);
                 }
                 if self.worker.is_some() {
                     note(ui, "Available when mining is stopped", c);

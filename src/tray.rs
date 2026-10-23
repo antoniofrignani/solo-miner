@@ -124,9 +124,10 @@ impl Tray {
         self.rate
             .set_text(format!("Hashrate: {}", rate(stats.hashes_per_second)));
         self.summary.set_text(format!(
-            "{} · GPU {}% · diff {}",
+            "{} · GPU {}% · {} · diff {}",
             config.pool.name(),
             config.gpu_load,
+            config.gpu_profile.label(),
             config.share_difficulty
         ));
         self.start

@@ -36,12 +36,34 @@ fn main() -> anyhow::Result<()> {
         )?;
         return Ok(());
     }
+    #[cfg(target_os = "macos")]
+    if std::env::args().any(|arg| arg == "--gpu-profile") {
+        for profile in config::GpuProfile::ALL {
+            let gpu = gpu::Gpu::with_profile(profile)?;
+            let speed = std::cell::Cell::new(0.0);
+            miner::run_benchmark(
+                &gpu,
+                100,
+                &std::sync::atomic::AtomicBool::new(false),
+                &|stats| speed.set(stats.hashes_per_second),
+            )?;
+            println!(
+                "{} · {} · {} nonces/batch · {:.2} MH/s (100% duty)",
+                gpu.name,
+                profile.label(),
+                profile.batch_size(),
+                speed.get() / 1e6
+            );
+        }
+        return Ok(());
+    }
     let path = config::config_path()?;
     let config = config::Config::load(&path)?;
     if std::env::args().any(|arg| arg == "--check") {
         println!("Settings: {}", path.display());
         println!("Pool: {} ({})", config.pool.name(), config.pool.endpoint());
         println!("GPU duty cycle: {}%", config.gpu_load);
+        println!("GPU workload: {}", config.gpu_profile.label());
         println!(
             "Reward address: {}",
             if config.bitcoin_address.is_empty() {

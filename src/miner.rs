@@ -1,6 +1,6 @@
 use crate::{
     config::{Config, validate_address},
-    gpu::{BATCH, Gpu},
+    gpu::Gpu,
     pow::{self, Job},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -69,7 +69,7 @@ pub fn spawn(
                 state: "Starting GPU…".into(),
                 ..Stats::default()
             });
-            let gpu = Gpu::new()?;
+            let gpu = Gpu::with_profile(config.gpu_profile)?;
             if benchmark {
                 return run_benchmark(&gpu, config.gpu_load, &cancel, &notify);
             }
@@ -118,15 +118,16 @@ pub fn run_benchmark(
     stop: &AtomicBool,
     notify: &impl Fn(Stats),
 ) -> Result<()> {
+    let batch = gpu.batch_size();
     let start = Instant::now();
     let mut total = 0u64;
     let mut reported = Instant::now();
     let mut nonce = 0u32;
     while start.elapsed() < Duration::from_secs(3) && !stop.load(Ordering::Relaxed) {
         let batch_start = Instant::now();
-        gpu.scan(&pow::genesis_header(), &[0; 32], nonce, BATCH)?;
-        nonce = nonce.wrapping_add(BATCH);
-        total += u64::from(BATCH);
+        gpu.scan(&pow::genesis_header(), &[0; 32], nonce, batch)?;
+        nonce = nonce.wrapping_add(batch);
+        total += u64::from(batch);
         throttle(batch_start.elapsed(), load, stop);
         if reported.elapsed() >= Duration::from_millis(250)
             || start.elapsed() >= Duration::from_secs(3)
@@ -425,7 +426,8 @@ fn session_inner(
                 *current = pow::build_job(&params, &extra1, &extra2, current.share_difficulty)?;
                 nonce = 0;
             }
-            let count = u64::from(BATCH).min(u64::from(u32::MAX) + 1 - nonce) as u32;
+            let count = u64::from(config.gpu_profile.batch_size())
+                .min(u64::from(u32::MAX) + 1 - nonce) as u32;
             let batch_start = Instant::now();
             // Scan the easier target so network candidates are never omitted, even for a bad pool difficulty.
             let target = if current

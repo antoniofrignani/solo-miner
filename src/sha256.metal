@@ -18,18 +18,26 @@ void compress(thread uint *h, thread uint *w) {
     for(uint i=0;i<64;i++){uint t=v+(rr(e,6)^rr(e,11)^rr(e,25))+((e&f)^((~e)&g))+K[i]+w[i];uint u=(rr(a,2)^rr(a,13)^rr(a,22))+((a&b)^(a&c)^(b&c));v=g;g=f;f=e;e=d+t;d=c;c=b;b=a;a=t+u;}
     h[0]+=a;h[1]+=b;h[2]+=c;h[3]+=d;h[4]+=e;h[5]+=f;h[6]+=g;h[7]+=v;
 }
-// params: nonce start, count, diagnostic output. target is 8 little-endian limbs.
-kernel void sha256d_scan(constant uchar *header [[buffer(0)]], constant uint *target [[buffer(1)]],
+// prepared: SHA-256 midstate and the last three fixed header words.
+// params: nonce start, count, diagnostic output, result capacity.
+kernel void sha256d_scan(constant uint *prepared [[buffer(0)]], constant uint *target [[buffer(1)]],
     constant uint *params [[buffer(2)]], device uint *out [[buffer(3)]], uint gid [[thread_position_in_grid]]) {
     if(gid>=params[1]) return;
-    uint w[64],h[8];init(h);
-    for(uint i=0;i<16;i++) w[i]=(uint(header[4*i])<<24)|(uint(header[4*i+1])<<16)|(uint(header[4*i+2])<<8)|uint(header[4*i+3]);
-    compress(h,w);
-    for(uint i=0;i<3;i++) w[i]=(uint(header[64+4*i])<<24)|(uint(header[65+4*i])<<16)|(uint(header[66+4*i])<<8)|uint(header[67+4*i]);
+    uint w[64],h[8];
+    #pragma unroll
+    for(uint i=0;i<8;i++) h[i]=prepared[i];
+    for(uint i=0;i<3;i++) w[i]=prepared[8+i];
     w[3]=sw(params[0]+gid);w[4]=0x80000000;for(uint i=5;i<15;i++) w[i]=0;w[15]=640;
     compress(h,w);
     for(uint i=0;i<8;i++) w[i]=h[i];w[8]=0x80000000;for(uint i=9;i<15;i++)w[i]=0;w[15]=256;
     init(h);compress(h,w);
     if(params[2]) { for(uint i=0;i<8;i++) out[gid*8+i]=sw(h[i]); }
-    else { bool match=true;for(int i=7;i>=0;i--){uint v=sw(h[i]);if(v<target[i])break;if(v>target[i]){match=false;break;}}out[gid]=match?1:0; }
+    else {
+        bool match=true;
+        for(int i=7;i>=0;i--){uint v=sw(h[i]);if(v<target[i])break;if(v>target[i]){match=false;break;}}
+        if(match) {
+            uint slot=atomic_fetch_add_explicit((device atomic_uint*)out,1u,memory_order_relaxed);
+            if(slot<params[3]) out[slot+1]=params[0]+gid;
+        }
+    }
 }
