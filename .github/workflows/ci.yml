@@ -16,25 +16,9 @@ concurrency:
 
 jobs:
   build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+    name: macOS Apple Silicon
+    runs-on: macos-15
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macOS Apple Silicon
-            os: macos-15
-            artifact: solo-miner-macos-arm64
-          - name: macOS Intel
-            os: macos-15-intel
-            artifact: solo-miner-macos-x86_64
-          - name: Linux configuration CLI
-            os: ubuntu-24.04
-            artifact: solo-miner-config-linux-x86_64
-          - name: Windows configuration CLI
-            os: windows-2025
-            artifact: solo-miner-config-windows-x86_64
     defaults:
       run:
         shell: bash
@@ -52,45 +36,19 @@ jobs:
       - name: Build release
         run: cargo build --locked --release
       - name: Check configuration command
-        run: |
-          if [[ "$RUNNER_OS" == Windows ]]; then
-            target/release/solo-miner.exe --check
-          else
-            target/release/solo-miner --check
-          fi
+        run: target/release/solo-miner --check
       - name: Package
-        env:
-          ARTIFACT: ${{ matrix.artifact }}
         run: |
           set -euo pipefail
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            sh scripts/bundle.sh
-            codesign --verify --strict 'dist/Solo Miner.app'
-            ditto -c -k --sequesterRsrc --keepParent 'dist/Solo Miner.app' "dist/$ARTIFACT.zip"
-          else
-            mkdir -p dist/package
-            cp LICENSE README.md dist/package/
-            if [[ "$RUNNER_OS" == Windows ]]; then
-              cp target/release/solo-miner.exe dist/package/
-              (cd dist/package && 7z a "../$ARTIFACT.zip" .)
-            else
-              cp target/release/solo-miner dist/package/
-              tar -czf "dist/$ARTIFACT.tar.gz" -C dist/package .
-            fi
-          fi
-          (cd dist && if [[ "$RUNNER_OS" == macOS ]]; then
-            shasum -a 256 "$ARTIFACT.zip" > "$ARTIFACT.sha256"
-          elif [[ "$RUNNER_OS" == Windows ]]; then
-            sha256sum "$ARTIFACT.zip" > "$ARTIFACT.sha256"
-          else
-            sha256sum "$ARTIFACT.tar.gz" > "$ARTIFACT.sha256"
-          fi)
+          sh scripts/bundle.sh
+          codesign --verify --strict 'dist/Solo Miner.app'
+          ditto -c -k --sequesterRsrc --keepParent 'dist/Solo Miner.app' dist/solo-miner-macos-arm64.zip
+          (cd dist && shasum -a 256 solo-miner-macos-arm64.zip > solo-miner-macos-arm64.sha256)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ matrix.artifact }}
+          name: solo-miner-macos-arm64
           path: |
             dist/*.zip
-            dist/*.tar.gz
             dist/*.sha256
           if-no-files-found: error
           retention-days: 14

@@ -4,14 +4,9 @@ Bitcoin solo miner per macOS, scritto in Rust. Hashing SHA-256d su GPU Metal, in
 
 ## Piattaforme
 
-| Piattaforma | Build | Funzioni |
-| --- | --- | --- |
-| macOS Apple Silicon | `.app`, arm64 | Interfaccia, mining Metal, notifiche |
-| macOS Intel | `.app`, x86_64 | Interfaccia, mining con GPU Metal compatibile, notifiche |
-| Linux x86_64 | CLI | Verifica della configurazione con `--check` |
-| Windows x86_64 | CLI | Verifica della configurazione con `--check` |
+È distribuita solo la build per **macOS Apple Silicon (arm64)**, firmata ad hoc e senza notarizzazione Apple.
 
-Il mining e l'interfaccia richiedono macOS. Gli archivi per Linux e Windows contengono solo il comando di verifica della configurazione. Le build macOS sono firmate ad hoc, senza notarizzazione Apple.
+All'avvio l'app verifica GPU, shader e calcolo Metal. Se il controllo fallisce, mostra un messaggio con l'errore ed esce prima di aprire l'interfaccia o collegarsi al pool.
 
 ## Uso
 
@@ -30,15 +25,13 @@ Il duty cycle regola batch GPU e pause, con incrementi del 5% nell'interfaccia. 
 
 ## Build
 
-Su macOS servono Rust stable e Xcode Command Line Tools.
+Servono un Mac Apple Silicon, Rust stable e Xcode Command Line Tools.
 
 ```sh
 cargo build --locked --release
 sh scripts/bundle.sh
 open 'dist/Solo Miner.app'
 ```
-
-Su Linux e Windows, `cargo build --locked --release` produce la CLI.
 
 ```sh
 cargo run -- --check          # Percorso e valori della configurazione
@@ -68,8 +61,8 @@ Il primo richiede una GPU Metal e usa un server Stratum locale. Il secondo verif
 
 ## GitHub Actions
 
-Ogni push su `main` e ogni pull request eseguono formattazione, Clippy, test e build sulle quattro piattaforme della tabella. Gli archivi e i checksum SHA-256 sono scaricabili dagli artifact della [build](https://github.com/antoniofrignani/solo-miner/actions/workflows/ci.yml).
+Ogni push su `main` e ogni pull request eseguono formattazione, Clippy, test e build su macOS Apple Silicon. Gli archivi e i checksum SHA-256 sono scaricabili dagli artifact della [build](https://github.com/antoniofrignani/solo-miner/actions/workflows/ci.yml).
 
-Un tag `vX.Y.Z` uguale alla versione in `Cargo.toml` pubblica una release con gli stessi archivi, dopo il completamento di tutte le build.
+Un tag `vX.Y.Z` uguale alla versione in `Cargo.toml` pubblica una release con gli stessi archivi, dopo il completamento della build.
 
 [Note delle versioni](docs/HISTORY.md).

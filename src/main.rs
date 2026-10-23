@@ -14,6 +14,8 @@ mod miner;
 #[cfg(target_os = "macos")]
 mod notifications;
 #[cfg(target_os = "macos")]
+mod startup;
+#[cfg(target_os = "macos")]
 mod tray;
 
 fn main() -> anyhow::Result<()> {
@@ -47,7 +49,11 @@ fn main() -> anyhow::Result<()> {
     }
     #[cfg(target_os = "macos")]
     {
-        desktop::run(config, path)
+        startup::run(
+            || objc2::rc::autoreleasepool(|_| gpu::Gpu::new().map(drop)),
+            startup::show_error,
+            || desktop::run(config, path),
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {

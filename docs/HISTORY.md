@@ -1,5 +1,10 @@
 # Versioni
 
+## 0.5.1
+
+- Distribuzione limitata a macOS Apple Silicon.
+- Controllo Metal all’avvio; in caso di errore l’app mostra un messaggio ed esce.
+
 ## 0.5.0
 
 - Finestra compatta e slider GPU con incrementi del 5%.

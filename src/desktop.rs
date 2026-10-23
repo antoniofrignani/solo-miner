@@ -139,7 +139,7 @@ impl Desktop {
             benchmark_load: 25,
             quitting: false,
         };
-        app.log("App", "Solo Miner 0.5.0");
+        app.log("App", concat!("Solo Miner ", env!("CARGO_PKG_VERSION")));
         if std::env::args().any(|a| a == "--resume-mining") {
             app.start();
         }
@@ -566,7 +566,7 @@ impl Desktop {
                 }
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("SOLO MINER / 0.5.0")
+                        RichText::new(concat!("SOLO MINER / ", env!("CARGO_PKG_VERSION")))
                             .size(11.0)
                             .color(c.muted),
                     );
