@@ -66,7 +66,7 @@ pub fn spawn(
                 validate_address(&config.bitcoin_address)?;
             }
             notify(Stats {
-                state: "Avvio GPU…".into(),
+                state: "Starting GPU…".into(),
                 ..Stats::default()
             });
             let gpu = Gpu::new()?;
@@ -75,7 +75,7 @@ pub fn spawn(
             }
             while !cancel.load(Ordering::Relaxed) {
                 notify(Stats {
-                    state: "Connessione al pool…".into(),
+                    state: "Connecting to pool…".into(),
                     gpu: gpu.name.clone(),
                     ..Stats::default()
                 });
@@ -97,7 +97,7 @@ pub fn spawn(
                         return Err(error);
                     }
                     notify(Stats {
-                        state: format!("Riconnessione tra 5 s: {error:#}"),
+                        state: format!("Reconnecting in 5 s: {error:#}"),
                         event: Some(MinerEvent::Error(format!("{error:#}"))),
                         gpu: gpu.name.clone(),
                         ..Stats::default()
@@ -132,7 +132,7 @@ pub fn run_benchmark(
             || start.elapsed() >= Duration::from_secs(3)
         {
             notify(Stats {
-                state: "Benchmark locale SHA-256d (3 s)".into(),
+                state: "Local SHA-256d benchmark (3 s)".into(),
                 gpu: gpu.name.clone(),
                 hashes_per_second: total as f64 / start.elapsed().as_secs_f64(),
                 ..Stats::default()
@@ -162,20 +162,20 @@ fn throttle(work: Duration, load: u8, stop: &AtomicBool) {
 fn connect(endpoint: &str, stop: &AtomicBool) -> Result<TcpStream> {
     let host = endpoint
         .strip_prefix("stratum+tcp://")
-        .context("Endpoint non supportato")?;
-    let addresses = host.to_socket_addrs().context("Risoluzione DNS fallita")?;
+        .context("Unsupported endpoint")?;
+    let addresses = host.to_socket_addrs().context("DNS lookup failed")?;
     let mut failures = Vec::new();
     for address in addresses.take(8) {
-        ensure!(!stop.load(Ordering::Relaxed), "Arrestato");
+        ensure!(!stop.load(Ordering::Relaxed), "Stopped");
         match TcpStream::connect_timeout(&address, Duration::from_secs(3)) {
             Ok(stream) => return Ok(stream),
             Err(error) => failures.push(format!("{address}: {error}")),
         }
     }
     bail!(
-        "Connessione TCP a {host} fallita: {}",
+        "TCP connection to {host} failed: {}",
         if failures.is_empty() {
-            "DNS senza indirizzi".into()
+            "DNS returned no addresses".into()
         } else {
             failures.join("; ")
         }
@@ -186,7 +186,7 @@ fn connect(endpoint: &str, stop: &AtomicBool) -> Result<TcpStream> {
 struct GpuFailure;
 impl std::fmt::Display for GpuFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Errore GPU: mining interrotto")
+        write!(f, "GPU error: mining stopped")
     }
 }
 impl std::error::Error for GpuFailure {}
@@ -209,7 +209,7 @@ impl Wire {
         let bytes = serde_json::to_vec(&value)?;
         ensure!(
             self.output.len() + bytes.len() < 1_048_576,
-            "Coda Stratum piena"
+            "Stratum queue full"
         );
         self.output.extend(bytes);
         self.output.push_back(b'\n');
@@ -219,7 +219,7 @@ impl Wire {
         while !self.output.is_empty() {
             let bytes = self.output.make_contiguous();
             match self.stream.write(bytes) {
-                Ok(0) => bail!("Connessione chiusa in scrittura"),
+                Ok(0) => bail!("Connection closed while writing"),
                 Ok(n) => {
                     self.output.drain(..n);
                 }
@@ -231,15 +231,12 @@ impl Wire {
         // Bound network work per loop so stop and hashing cannot be starved by a peer.
         for _ in 0..64 {
             match self.stream.read(&mut bytes) {
-                Ok(0) => bail!("Pool disconnesso"),
+                Ok(0) => bail!("Pool disconnected"),
                 Ok(n) => self.input.extend_from_slice(&bytes[..n]),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e.into()),
             }
-            ensure!(
-                self.input.len() <= 1_048_576,
-                "Messaggio Stratum troppo grande"
-            );
+            ensure!(self.input.len() <= 1_048_576, "Stratum message too large");
         }
         let mut messages = Vec::new();
         while let Some(end) = self.input.iter().position(|b| *b == b'\n') {
@@ -306,7 +303,7 @@ fn session_inner(
     let mut measured = Instant::now();
     let mut hashes = 0u64;
     let mut stats = Stats {
-        state: "Handshake Stratum…".into(),
+        state: "Stratum handshake…".into(),
         gpu: gpu_name.into(),
         ..Stats::default()
     };
@@ -316,7 +313,7 @@ fn session_inner(
                 Some("mining.set_difficulty") => {
                     next_diff = message["params"][0]
                         .as_f64()
-                        .context("Difficoltà share assente")?;
+                        .context("Missing share difficulty")?;
                     let target = pow::share_target(next_diff)?;
                     // SoloPool can change difficulty without sending a new job.
                     if config.pool == crate::pool::Pool::Solopool
@@ -329,7 +326,7 @@ fn session_inner(
                     }
                 }
                 Some("mining.notify") => {
-                    ensure!(subscribed, "Job prima della sottoscrizione");
+                    ensure!(subscribed, "Job received before subscription");
                     params = message["params"].clone();
                     let extra2 = next_extra(&mut counter, extra_size)?;
                     let new_job = pow::build_job(&params, &extra1, &extra2, next_diff)?;
@@ -341,7 +338,7 @@ fn session_inner(
                     notify(stats.clone());
                 }
                 Some("mining.set_extranonce") | Some("client.reconnect") => {
-                    bail!("Il pool richiede una nuova sessione")
+                    bail!("Pool requested a new session")
                 }
                 Some("client.get_version") => {
                     wire.send(json!({"id":message["id"],"result":format!("solo-miner/{}",env!("CARGO_PKG_VERSION")),"error":null}))?
@@ -351,22 +348,22 @@ fn session_inner(
                     Some(1) => {
                         ensure!(
                             message["error"].is_null(),
-                            "Subscribe rifiutato: {}",
+                            "Subscription rejected: {}",
                             message["error"]
                         );
                         extra1 = hex::decode(
                             message["result"][1]
                                 .as_str()
-                                .context("Extranonce1 assente")?,
+                                .context("Missing extranonce1")?,
                         )?;
-                        ensure!(extra1.len() <= 64, "Extranonce1 troppo lungo");
+                        ensure!(extra1.len() <= 64, "Extranonce1 too long");
                         extra_size = message["result"][2]
                             .as_u64()
-                            .context("Extranonce2 size assente")?
+                            .context("Missing extranonce2 size")?
                             as usize;
                         ensure!(
                             (1..=16).contains(&extra_size),
-                            "Extranonce2 size non supportata"
+                            "Unsupported extranonce2 size"
                         );
                         subscribed = true;
                         // SoloPool selects 100% solo mode with password x.
@@ -377,14 +374,14 @@ fn session_inner(
                     Some(2) => {
                         ensure!(
                             message["result"].as_bool() == Some(true) && message["error"].is_null(),
-                            "Autorizzazione rifiutata: {}",
+                            "Authorization rejected: {}",
                             message["error"]
                         );
                         authorized = true;
                         if config.pool == crate::pool::Pool::Solopool {
                             wire.send(difficulty_request(config.share_difficulty))?;
                         }
-                        stats.state = "In attesa del job…".into();
+                        stats.state = "Waiting for job…".into();
                         notify(stats.clone());
                     }
                     Some(id) if pending.remove(&id).is_some() => {
@@ -397,7 +394,7 @@ fn session_inner(
                             stats.rejected += 1;
                             let mut event = stats.clone();
                             event.event = Some(MinerEvent::Error(format!(
-                                "Share rifiutata dal pool: {}",
+                                "Share rejected by pool: {}",
                                 message["error"]
                             )));
                             notify(event);
@@ -410,17 +407,17 @@ fn session_inner(
         }
         ensure!(
             authorized || started.elapsed() < Duration::from_secs(20),
-            "Timeout handshake"
+            "Handshake timeout"
         );
         ensure!(
             last_job.elapsed() < Duration::from_secs(120),
-            "Nessun job recente: sessione scaduta"
+            "No recent job: session expired"
         );
         ensure!(
             pending
                 .values()
                 .all(|time: &Instant| time.elapsed() < Duration::from_secs(30)),
-            "Timeout risposta share"
+            "Share response timeout"
         );
         if authorized && let Some(current) = job.as_mut() {
             if nonce > u64::from(u32::MAX) {
@@ -451,7 +448,7 @@ fn session_inner(
                 header[76..80].copy_from_slice(&found_nonce.to_le_bytes());
                 let hash = pow::hash(&header);
                 if !pow::meets(&hash, &target) {
-                    return Err(anyhow::anyhow!("Risultato GPU non valido")).context(GpuFailure);
+                    return Err(anyhow::anyhow!("Invalid GPU result")).context(GpuFailure);
                 }
                 if pow::meets(&hash, &current.network_target) {
                     stats.block_candidates += 1;
@@ -459,7 +456,7 @@ fn session_inner(
                     event.event = Some(MinerEvent::BlockCandidate);
                     notify(event);
                 }
-                ensure!(pending.len() < 1024, "Troppe share senza risposta");
+                ensure!(pending.len() < 1024, "Too many pending shares");
                 wire.send(json!({"id":next_id,"method":"mining.submit","params":[username,current.id,current.extranonce2,current.ntime,format!("{found_nonce:08x}")]}))?;
                 pending.insert(next_id, Instant::now());
                 next_id += 1;
@@ -468,9 +465,9 @@ fn session_inner(
             hashes += u64::from(count);
             throttle(batch_start.elapsed(), config.gpu_load, stop);
             stats.state = if stats.accepted == 0 {
-                "Mining · attesa prima share".into()
+                "Mining · waiting for first share".into()
             } else {
-                "Mining attivo".into()
+                "Mining active".into()
             };
         } else {
             pause(Duration::from_millis(20), stop);
@@ -488,11 +485,11 @@ fn next_extra(counter: &mut u128, size: usize) -> Result<Vec<u8>> {
     if size < 16 {
         ensure!(
             *counter < (1u128 << (size * 8)),
-            "Extranonce2 esaurito: nuova sessione necessaria"
+            "Extranonce2 exhausted: new session required"
         );
     }
     let bytes = counter.to_le_bytes()[..size].to_vec();
-    *counter = counter.checked_add(1).context("Extranonce2 esaurito")?;
+    *counter = counter.checked_add(1).context("Extranonce2 exhausted")?;
     Ok(bytes)
 }
 

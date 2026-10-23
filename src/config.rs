@@ -49,12 +49,12 @@ impl Config {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::default());
             }
-            Err(error) => return Err(error).context("Impossibile leggere la configurazione"),
+            Err(error) => return Err(error).context("Unable to read settings"),
         };
-        let config: Self = toml::from_str(&text).context("Configurazione TOML non valida")?;
+        let config: Self = toml::from_str(&text).context("Invalid TOML settings")?;
         ensure!(
             config.version == 1,
-            "Versione configurazione non supportata: {}",
+            "Unsupported settings version: {}",
             config.version
         );
         config.validate()?;
@@ -64,17 +64,17 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             [0, 7, 30].contains(&self.log_retention_days),
-            "Conservazione log non valida"
+            "Invalid log retention"
         );
-        ensure!((1..=100).contains(&self.gpu_load), "Carico GPU non valido");
+        ensure!((1..=100).contains(&self.gpu_load), "Invalid GPU load");
         ensure!(
             self.share_difficulty.is_finite() && (0.000001..=1e12).contains(&self.share_difficulty),
-            "Difficoltà share: inserisci un valore tra 0.000001 e 1000000000000"
+            "Share difficulty must be between 0.000001 and 1000000000000"
         );
         if self.pool == Pool::Solopool {
             ensure!(
                 self.share_difficulty >= 1.0 && self.share_difficulty.fract() == 0.0,
-                "SoloPool richiede una difficoltà share intera, almeno 1"
+                "SoloPool requires an integer share difficulty of at least 1"
             );
         }
         if !self.bitcoin_address.is_empty() {
@@ -87,20 +87,19 @@ impl Config {
         self.validate()?;
         let parent = path
             .parent()
-            .context("Percorso configurazione senza directory")?;
+            .context("Settings path has no parent directory")?;
         fs::create_dir_all(parent)?;
         let mut file = tempfile::NamedTempFile::new_in(parent)?;
         file.write_all(toml::to_string_pretty(self)?.as_bytes())?;
         file.as_file().sync_all()?;
-        file.persist(path)
-            .context("Impossibile salvare la configurazione")?;
+        file.persist(path).context("Unable to save settings")?;
         Ok(())
     }
 }
 
 pub fn config_path() -> Result<PathBuf> {
     Ok(ProjectDirs::from("it", "solo-miner", "Solo Miner")
-        .context("Directory utente non disponibile")?
+        .context("User directory unavailable")?
         .config_dir()
         .join("config.toml"))
 }
@@ -153,9 +152,9 @@ fn default_gpu_load() -> u8 {
 pub fn validate_address(value: &str) -> Result<()> {
     use std::str::FromStr;
     bitcoin::Address::from_str(value)
-        .context("Indirizzo Bitcoin non valido (checksum/formato)")?
+        .context("Invalid Bitcoin address (checksum/format)")?
         .require_network(bitcoin::Network::Bitcoin)
-        .context("Serve un indirizzo Bitcoin mainnet")?;
+        .context("A Bitcoin mainnet address is required")?;
     Ok(())
 }
 

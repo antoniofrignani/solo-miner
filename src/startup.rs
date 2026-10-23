@@ -16,17 +16,16 @@ pub fn run(
 }
 
 pub fn show_error(error: &anyhow::Error) {
-    let main =
-        MainThreadMarker::new().expect("Il controllo Metal deve essere sul thread principale");
+    let main = MainThreadMarker::new().expect("Metal startup check must run on the main thread");
     let app = NSApplication::sharedApplication(main);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     let alert = NSAlert::new(main);
     alert.setAlertStyle(NSAlertStyle::Critical);
-    alert.setMessageText(&NSString::from_str("Impossibile inizializzare Metal"));
+    alert.setMessageText(&NSString::from_str("Unable to initialize Metal"));
     alert.setInformativeText(&NSString::from_str(&format!(
-        "Solo Miner richiede una GPU compatibile con Metal.\n\n{error:#}"
+        "Solo Miner requires a Metal-compatible GPU.\n\n{error:#}"
     )));
-    alert.addButtonWithTitle(&NSString::from_str("Esci"));
+    alert.addButtonWithTitle(&NSString::from_str("Quit"));
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);
     alert.runModal();
@@ -41,12 +40,12 @@ mod tests {
     fn metal_failure_shows_error_without_starting_app() {
         let shown = Cell::new(false);
         let result = run(
-            || anyhow::bail!("Nessuna GPU Metal disponibile"),
+            || anyhow::bail!("No Metal GPU available"),
             |error| {
-                assert_eq!(error.to_string(), "Nessuna GPU Metal disponibile");
+                assert_eq!(error.to_string(), "No Metal GPU available");
                 shown.set(true);
             },
-            || panic!("L'app non deve avviarsi senza Metal"),
+            || panic!("The app must not start without Metal"),
         );
         assert!(result.is_err());
         assert!(shown.get());
@@ -57,7 +56,7 @@ mod tests {
         let started = Cell::new(false);
         run(
             || Ok(()),
-            |_| panic!("Metal disponibile"),
+            |_| panic!("Metal is available"),
             || {
                 started.set(true);
                 Ok(())

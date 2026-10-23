@@ -1,47 +1,51 @@
-# Versioni
+# Changelog
+
+## 0.5.2
+
+- English interface, notifications, error messages and documentation.
 
 ## 0.5.1
 
-- Distribuzione limitata a macOS Apple Silicon.
-- Controllo Metal all’avvio; in caso di errore l’app mostra un messaggio ed esce.
+- Distribution limited to macOS Apple Silicon.
+- Metal startup check; the app displays an error and exits if the check fails.
 
 ## 0.5.0
 
-- Finestra compatta e slider GPU con incrementi del 5%.
-- Icona condivisa e barra superiore trascinabile.
-- Registro attività persistente con conservazione configurabile.
+- Compact window and GPU slider with 5% increments.
+- Shared icon and draggable title bar.
+- Persistent activity log with configurable retention.
 
 ## 0.4.1
 
-- Ridotti i testi dell'interfaccia.
+- Shortened interface text.
 
 ## 0.4.0
 
-- Interfaccia egui con avvio, arresto e riavvio alla modifica delle impostazioni.
-- Grafico hashrate e temi chiaro, scuro e sistema.
+- egui interface with start, stop and automatic restart when settings change.
+- Hashrate graph and light, dark and system themes.
 
 ## 0.3.2
 
-- Difficoltà intere serializzate come interi JSON: SoloPool ignora valori come `10.0` ma accetta `10`.
+- Integer difficulties serialized as JSON integers: SoloPool ignores values such as `10.0` but accepts `10`.
 
 ## 0.3.1
 
-- Su SoloPool, richiesta di difficoltà dopo l'autorizzazione e aggiornamento del job corrente quando il pool non ne invia uno nuovo.
-- Riepilogo notifiche aggiornato al salvataggio.
+- SoloPool difficulty request sent after authorization; current job updated when the pool does not send a replacement.
+- Notification summary updated when settings are saved.
 
 ## 0.3.0
 
-- Opzioni per wallet, pool, difficoltà e duty cycle.
-- Notifiche per share, candidati blocco ed errori.
+- Wallet, pool, difficulty and duty cycle settings.
+- Notifications for shares, block candidates and errors.
 
 ## 0.2.1
 
-- Richiesta di difficoltà iniziale 1 per Public Pool. Il worker compare nella dashboard dopo la prima share valida.
+- Initial difficulty request of 1 for Public Pool. Workers appear on the dashboard after the first valid share.
 
 ## 0.2.0
 
-- Mining SHA-256d su Metal, verifica CPU e client Stratum V1.
+- SHA-256d mining on Metal, CPU verification and a Stratum V1 client.
 
 ## 0.1.0
 
-- Menu nella barra di sistema e configurazione dei pool.
+- Menu bar controls and pool settings.

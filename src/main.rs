@@ -22,7 +22,10 @@ fn main() -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     if std::env::args().any(|arg| arg == "--gpu-check") {
         let gpu = gpu::Gpu::new()?;
-        println!("GPU: {} — SHA-256d e confronto target verificati", gpu.name);
+        println!(
+            "GPU: {} — SHA-256d and target comparison verified",
+            gpu.name
+        );
         miner::run_benchmark(
             &gpu,
             25,
@@ -34,13 +37,13 @@ fn main() -> anyhow::Result<()> {
     let path = config::config_path()?;
     let config = config::Config::load(&path)?;
     if std::env::args().any(|arg| arg == "--check") {
-        println!("Configurazione: {}", path.display());
+        println!("Settings: {}", path.display());
         println!("Pool: {} ({})", config.pool.name(), config.pool.endpoint());
         println!("GPU duty cycle: {}%", config.gpu_load);
         println!(
-            "Indirizzo reward: {}",
+            "Reward address: {}",
             if config.bitcoin_address.is_empty() {
-                "non configurato"
+                "not configured"
             } else {
                 &config.bitcoin_address
             }
@@ -58,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(target_os = "macos"))]
     {
         anyhow::bail!(
-            "Il mining richiede macOS e Metal. Su questa piattaforma è disponibile solo --check."
+            "Mining requires macOS and Metal. Only --check is available on this platform."
         )
     }
 }

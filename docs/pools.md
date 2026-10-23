@@ -1,23 +1,23 @@
-# Pool
+# Pools
 
-| Pool | Endpoint Stratum TCP | Documentazione |
+| Pool | Stratum TCP endpoint | Documentation |
 | --- | --- | --- |
 | CKPool Solo | `stratum.ckpool.org:3333` | https://solo.ckpool.org/ |
 | Braiins Solo | `solo.stratum.braiins.com:3333` | https://academy.braiins.com/braiins-pool/solo-mining |
 | Public Pool | `public-pool.io:3333` | https://web.public-pool.io/ |
 | SoloPool | `stratum.solopool.com:3333` | https://solopool.com/docs.html |
 
-Il client usa `ADDRESS.mac` come username e `x` come password. Su SoloPool `x` seleziona la modalità 100% solo.
+The client uses `ADDRESS.mac` as the username and `x` as the password. On SoloPool, `x` selects 100% solo mode.
 
-`mining.suggest_difficulty` viene inviato prima dell'autorizzazione, tranne su SoloPool che richiede l'invio dopo. Il client applica la difficoltà assegnata dal server. Su SoloPool i valori interi devono essere numeri JSON interi; un aggiornamento può riguardare il job corrente senza un nuovo `mining.notify`.
+`mining.suggest_difficulty` is sent before authorization, except on SoloPool, which requires it afterward. The client applies the difficulty assigned by the server. SoloPool requires integer values to be JSON integers; an update can affect the current job without a new `mining.notify`.
 
-Public Pool registra il worker dopo la prima share valida. Il tempo medio per share è `difficoltà × 2^32 / hashrate`.
+Public Pool registers a worker after its first valid share. Average time per share is `difficulty × 2^32 / hashrate`.
 
-## Statistiche del wallet
+## Wallet statistics
 
 - CKPool: `https://stats.ckpool.org/users/ADDRESS`
 - Braiins: `https://hashpower.braiins.com/solo/ADDRESS`
 - SoloPool: `https://solopool.com/user.html?addr=ADDRESS`
 - Public Pool: `https://web.public-pool.io/#/app/ADDRESS`
 
-Le pagine statistiche usano l'indirizzo mainnet validato, senza suffisso worker. Endpoint e URL verificati il 23 ottobre 2026.
+Statistics pages use the validated mainnet address without a worker suffix. Endpoints and URLs verified on October 23, 2026.

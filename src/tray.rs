@@ -35,12 +35,12 @@ impl Tray {
         let (sender, events) = std::sync::mpsc::channel();
         let menu = Menu::new();
         let show = MenuItem::new(
-            "Apri Solo Miner",
+            "Open Solo Miner",
             true,
             Some(Accelerator::new(Some(Modifiers::SUPER), Code::Digit1)),
         );
         let settings = MenuItem::new(
-            "Impostazioni…",
+            "Settings…",
             true,
             Some(Accelerator::new(Some(Modifiers::SUPER), Code::Comma)),
         );
@@ -53,13 +53,13 @@ impl Tray {
             let _ = sender.send(event);
             wake();
         }));
-        let status = MenuItem::new("Inattivo", false, None);
+        let status = MenuItem::new("Idle", false, None);
         let summary = MenuItem::new("", false, None);
         let rate = MenuItem::new("Hashrate: —", false, None);
-        let start = MenuItem::new("Avvia mining", true, None);
-        let stop = MenuItem::new("Ferma mining", false, None);
-        let account = MenuItem::new("Apri account del pool…", true, None);
-        let quit = MenuItem::new("Esci da Solo Miner", true, None);
+        let start = MenuItem::new("Start mining", true, None);
+        let stop = MenuItem::new("Stop mining", false, None);
+        let account = MenuItem::new("Open pool account…", true, None);
+        let quit = MenuItem::new("Quit Solo Miner", true, None);
         menu.append_items(&[
             &show,
             &status,
@@ -82,12 +82,12 @@ impl Tray {
         let app_menu = Menu::new();
         let app = Submenu::new("Solo Miner", true);
         app.append_items(&[&show, &settings, &PredefinedMenuItem::separator(), &quit])?;
-        let edit = Submenu::new("Modifica", true);
+        let edit = Submenu::new("Edit", true);
         edit.append_items(&[
-            &PredefinedMenuItem::cut(None),
-            &PredefinedMenuItem::copy(None),
-            &PredefinedMenuItem::paste(None),
-            &PredefinedMenuItem::select_all(None),
+            &PredefinedMenuItem::cut(Some("Cut")),
+            &PredefinedMenuItem::copy(Some("Copy")),
+            &PredefinedMenuItem::paste(Some("Paste")),
+            &PredefinedMenuItem::select_all(Some("Select All")),
         ])?;
         app_menu.append_items(&[&app, &edit])?;
         app_menu.init_for_nsapp();

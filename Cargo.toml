@@ -1,6 +1,6 @@
 [package]
 name = "solo-miner"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 description = "Open-source Bitcoin solo mining menu bar app for macOS"
 license = "MIT"

@@ -54,9 +54,9 @@ impl Journal {
                 .filter(|s| !s.trim().is_empty())
                 .map(serde_json::from_str)
                 .collect::<std::result::Result<Vec<_>, _>>()
-                .context("Registro attività non valido")?,
+                .context("Invalid activity log")?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => vec![],
-            Err(e) => return Err(e).context("Lettura registro attività"),
+            Err(e) => return Err(e).context("Read activity log"),
         };
         let mut journal = Self {
             entries,
@@ -67,7 +67,7 @@ impl Journal {
         Ok(journal)
     }
     fn persist(&self) -> Result<()> {
-        let parent = self.path.parent().context("Directory registro assente")?;
+        let parent = self.path.parent().context("Missing log directory")?;
         fs::create_dir_all(parent)?;
         let mut file = tempfile::NamedTempFile::new_in(parent)?;
         for entry in &self.entries {
@@ -108,7 +108,7 @@ impl Journal {
             kind: kind.into(),
             text,
         };
-        fs::create_dir_all(self.path.parent().context("Directory registro assente")?)?;
+        fs::create_dir_all(self.path.parent().context("Missing log directory")?)?;
         let mut file = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -146,18 +146,18 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("activity.jsonl");
         let mut log = Journal::open(path.clone(), 0)?;
-        log.append("Errore", "Rete\nnon disponibile".into())?;
+        log.append("Error", "Network\nunavailable".into())?;
         log.entries.push(Entry {
             timestamp: now() - 10 * 86400,
             kind: "App".into(),
-            text: "Vecchio".into(),
+            text: "Old".into(),
         });
         log.persist()?;
         let mut log = Journal::open(path.clone(), 30)?;
         assert_eq!(log.entries.len(), 2);
         log.set_retention(7)?;
         assert_eq!(Journal::open(path.clone(), 7)?.entries.len(), 1);
-        assert_eq!(log.entries[0].text, "Rete\nnon disponibile");
+        assert_eq!(log.entries[0].text, "Network\nunavailable");
         log.clear()?;
         assert!(Journal::open(path, 30)?.entries.is_empty());
         Ok(())

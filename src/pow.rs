@@ -14,7 +14,7 @@ pub fn meets(hash: &[u8; 32], target: &[u8; 32]) -> bool {
 
 fn bytes(value: BigUint) -> Result<[u8; 32]> {
     let raw = value.to_bytes_le();
-    ensure!(raw.len() <= 32, "Target oltre 256 bit");
+    ensure!(raw.len() <= 32, "Target exceeds 256 bits");
     let mut out = [0; 32];
     out[..raw.len()].copy_from_slice(&raw);
     Ok(out)
@@ -25,7 +25,7 @@ pub fn compact_target(bits: u32) -> Result<[u8; 32]> {
     let mantissa = bits & 0x007fffff;
     ensure!(
         bits & 0x00800000 == 0 && mantissa != 0 && exponent <= 32,
-        "nBits non valido"
+        "Invalid nBits"
     );
     let value = BigUint::from(mantissa);
     bytes(if exponent <= 3 {
@@ -42,10 +42,7 @@ pub fn difficulty(target: &[u8; 32]) -> f64 {
 
 /// Exact rational conversion of the server's IEEE754 difficulty, with integer floor.
 pub fn share_target(diff: f64) -> Result<[u8; 32]> {
-    ensure!(
-        diff.is_finite() && diff > 0.0,
-        "Difficoltà share non valida"
-    );
+    ensure!(diff.is_finite() && diff > 0.0, "Invalid share difficulty");
     let bits = diff.to_bits();
     let exp = ((bits >> 52) & 0x7ff) as i32;
     let fraction = bits & ((1u64 << 52) - 1);
@@ -75,36 +72,33 @@ pub struct Job {
 }
 
 pub fn build_job(params: &Value, extra1: &[u8], extra2: &[u8], diff: f64) -> Result<Job> {
-    let p = params.as_array().context("Job non valido")?;
-    ensure!(
-        p.len() == 9 && p[8].is_boolean(),
-        "Parametri job non validi"
-    );
-    let text = |i: usize| p[i].as_str().context("Campo job non testuale");
+    let p = params.as_array().context("Invalid job")?;
+    ensure!(p.len() == 9 && p[8].is_boolean(), "Invalid job parameters");
+    let text = |i: usize| p[i].as_str().context("Job field is not a string");
     let id = text(0)?.to_owned();
-    ensure!(id.len() <= 256, "Job ID troppo lungo");
+    ensure!(id.len() <= 256, "Job ID too long");
     let mut coinbase = hex::decode(text(2)?)?;
     coinbase.extend_from_slice(extra1);
     coinbase.extend_from_slice(extra2);
     coinbase.extend(hex::decode(text(3)?)?);
     let mut merkle = hash(&coinbase);
-    let branches = p[4].as_array().context("Merkle branches non valide")?;
-    ensure!(branches.len() <= 32, "Troppi merkle branches");
+    let branches = p[4].as_array().context("Invalid Merkle branches")?;
+    ensure!(branches.len() <= 32, "Too many Merkle branches");
     for branch in branches {
-        let branch = hex::decode(branch.as_str().context("Merkle branch non valido")?)?;
-        ensure!(branch.len() == 32, "Lunghezza merkle branch errata");
+        let branch = hex::decode(branch.as_str().context("Invalid Merkle branch")?)?;
+        ensure!(branch.len() == 32, "Invalid Merkle branch length");
         let mut pair = Vec::from(merkle);
         pair.extend(branch);
         merkle = hash(&pair);
     }
     let mut header = [0; 80];
     let field = |i: usize| -> Result<u32> {
-        ensure!(text(i)?.len() == 8, "Campo header deve essere di 4 byte");
+        ensure!(text(i)?.len() == 8, "Header field must be 4 bytes");
         Ok(u32::from_str_radix(text(i)?, 16)?)
     };
     header[..4].copy_from_slice(&field(5)?.to_le_bytes());
     let mut prev = hex::decode(text(1)?)?;
-    ensure!(prev.len() == 32, "Prevhash deve essere di 32 byte");
+    ensure!(prev.len() == 32, "Previous hash must be 32 bytes");
     // Stratum V1 previous hash uses big-endian words; header serialization uses LE words.
     for word in prev.as_chunks_mut::<4>().0 {
         word.reverse();

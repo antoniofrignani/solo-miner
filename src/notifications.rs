@@ -59,18 +59,17 @@ impl Notifications {
     }
     pub fn authorize(&self) {
         let Some(center) = &self.center else {
-            (self.report)("Per le notifiche apri il bundle Solo Miner.app.".into());
+            (self.report)("Open Solo Miner.app to use notifications.".into());
             return;
         };
         let report = self.report.clone();
         let completion = RcBlock::new(move |granted: Bool, error: *mut NSError| {
             let text = if !error.is_null() {
-                format!("Errore autorizzazione notifiche: {}", unsafe { &*error })
+                format!("Notification authorization error: {}", unsafe { &*error })
             } else if granted.as_bool() {
-                "Notifiche autorizzate".into()
+                "Notifications authorized".into()
             } else {
-                "Notifiche negate: abilita Solo Miner in Impostazioni di Sistema → Notifiche."
-                    .into()
+                "Notifications denied: enable Solo Miner in System Settings → Notifications.".into()
             };
             report(text);
         });
@@ -112,7 +111,9 @@ impl Notifications {
         let report = self.report.clone();
         let completion = RcBlock::new(move |error: *mut NSError| {
             if !error.is_null() {
-                report(format!("Invio notifica fallito: {}", unsafe { &*error }));
+                report(format!("Notification delivery failed: {}", unsafe {
+                    &*error
+                }));
             }
         });
         center.addNotificationRequest_withCompletionHandler(&request, Some(&completion));
@@ -124,13 +125,13 @@ fn notification(
 ) -> Option<(&'static str, String)> {
     match event {
         MinerEvent::AcceptedShare if settings.accepted_share => {
-            Some(("Share accettata", "Confermata dal pool.".into()))
+            Some(("Share accepted", "Confirmed by pool.".into()))
         }
         MinerEvent::BlockCandidate if settings.block_candidate => Some((
-            "Candidato blocco trovato",
-            "Il blocco non è ancora confermato dal pool.".into(),
+            "Block candidate found",
+            "The block has not yet been confirmed by the pool.".into(),
         )),
-        MinerEvent::Error(error) if settings.error => Some(("Errore Solo Miner", error.clone())),
+        MinerEvent::Error(error) if settings.error => Some(("Solo Miner error", error.clone())),
         _ => None,
     }
 }
@@ -156,7 +157,7 @@ mod tests {
             notification(&MinerEvent::BlockCandidate, &settings)
                 .unwrap()
                 .1
-                .contains("non è ancora confermato")
+                .contains("not yet been confirmed")
         );
         assert_eq!(
             notification(&MinerEvent::Error("offline".into()), &settings)

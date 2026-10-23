@@ -17,7 +17,7 @@ pub struct Gpu {
 }
 impl Gpu {
     pub fn new() -> Result<Self> {
-        let device = MTLCreateSystemDefaultDevice().context("Nessuna GPU Metal disponibile")?;
+        let device = MTLCreateSystemDefaultDevice().context("No Metal GPU available")?;
         let name = device.name().to_string();
         let library = device
             .newLibraryWithSource_options_error(
@@ -27,16 +27,16 @@ impl Gpu {
             .map_err(|e| anyhow!("Metal shader: {e}"))?;
         let function = library
             .newFunctionWithName(&NSString::from_str("sha256d_scan"))
-            .context("Kernel mancante")?;
+            .context("Missing kernel")?;
         let pipeline = device
             .newComputePipelineStateWithFunction_error(&function)
             .map_err(|e| anyhow!("Metal pipeline: {e}"))?;
         let queue = device
             .newCommandQueue()
-            .context("Metal command queue non disponibile")?;
+            .context("Metal command queue unavailable")?;
         let output = device
             .newBufferWithLength_options(BATCH as usize * 32, MTLResourceOptions::StorageModeShared)
-            .context("Allocazione GPU fallita")?;
+            .context("GPU allocation failed")?;
         let gpu = Self {
             queue,
             pipeline,
@@ -56,16 +56,16 @@ impl Gpu {
     ) -> Result<Vec<u32>> {
         ensure!(
             count > 0 && count <= BATCH && start.checked_add(count - 1).is_some(),
-            "Intervallo nonce non valido"
+            "Invalid nonce range"
         );
         autoreleasepool(|_| {
             let command = self
                 .queue
                 .commandBuffer()
-                .context("Command buffer non disponibile")?;
+                .context("Command buffer unavailable")?;
             let encoder = command
                 .computeCommandEncoder()
-                .context("Compute encoder non disponibile")?;
+                .context("Compute encoder unavailable")?;
             encoder.setComputePipelineState(&self.pipeline);
             let params = [start, count, u32::from(diagnostic)];
             // Metal copies setBytes immediately. Buffer stays owned and is read only after GPU completion.
@@ -108,7 +108,7 @@ impl Gpu {
             command.waitUntilCompleted();
             ensure!(
                 command.status() == MTLCommandBufferStatus::Completed,
-                "Errore GPU: {:?}",
+                "GPU error: {:?}",
                 command.error()
             );
             let len = count as usize * if diagnostic { 8 } else { 1 };
@@ -140,15 +140,12 @@ impl Gpu {
         for (i, words) in raw.as_chunks::<8>().0.iter().enumerate() {
             header[76..80].copy_from_slice(&(start + i as u32).to_le_bytes());
             let actual: Vec<u8> = words.iter().flat_map(|v| v.to_le_bytes()).collect();
-            ensure!(
-                actual == pow::hash(&header),
-                "Self-test GPU SHA256d fallito"
-            );
+            ensure!(actual == pow::hash(&header), "GPU SHA256d self-test failed");
         }
         let target = pow::compact_target(0x1d00ffff)?;
         ensure!(
             self.scan(&header, &target, start, 64)? == vec![start + 32],
-            "Self-test GPU target fallito"
+            "GPU target self-test failed"
         );
         // Exercise all target words and arbitrary headers, not just a leading-zero target.
         for seed in [0u8, 73, 255] {
@@ -164,7 +161,7 @@ impl Gpu {
                 .collect();
             ensure!(
                 self.scan(&header, &target, 0, 32)? == expected,
-                "Self-test confronto target fallito"
+                "Target comparison self-test failed"
             );
         }
         Ok(())

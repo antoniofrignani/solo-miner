@@ -41,7 +41,7 @@ pub fn run(config: Config, path: PathBuf) -> Result<()> {
         options,
         Box::new(move |cc| Ok(Box::new(Desktop::new(cc, config, path)?))),
     )
-    .map_err(|e| anyhow::anyhow!("Interfaccia: {e}"))
+    .map_err(|e| anyhow::anyhow!("Interface: {e}"))
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
@@ -125,7 +125,7 @@ impl Desktop {
             lifecycle: Lifecycle::default(),
             worker: None,
             stats: Stats {
-                state: "Inattivo".into(),
+                state: "Idle".into(),
                 ..Default::default()
             },
             launched: Instant::now(),
@@ -147,13 +147,13 @@ impl Desktop {
     }
     fn log(&mut self, kind: &str, text: impl Into<String>) {
         if let Err(e) = self.journal.append(kind, text.into()) {
-            self.message = format!("Registro: {e:#}");
+            self.message = format!("Log: {e:#}");
         }
     }
 
     fn error(&mut self, text: String) {
         self.message = text.clone();
-        self.log("Errore", &text);
+        self.log("Error", &text);
         self.notifications
             .event(&MinerEvent::Error(text), &self.config.notifications);
     }
@@ -180,9 +180,9 @@ impl Desktop {
         ));
         self.stats = Stats {
             state: if kind == Work::Mining {
-                "Avvio del mining…"
+                "Starting mining…"
             } else {
-                "Benchmark in corso…"
+                "Running benchmark…"
             }
             .into(),
             ..Default::default()
@@ -191,11 +191,11 @@ impl Desktop {
             self.session_start = Some(Instant::now());
         }
         self.log(
-            "Sessione",
+            "Session",
             if kind == Work::Mining {
-                "Avvio mining GPU"
+                "GPU mining started"
             } else {
-                "Benchmark GPU locale, 3 secondi"
+                "Local GPU benchmark, 3 seconds"
             },
         );
     }
@@ -223,9 +223,9 @@ impl Desktop {
         self.lifecycle.stop();
         if let Some(h) = &self.worker {
             h.stop();
-            self.stats.state = "Arresto in corso…".into();
+            self.stats.state = "Stopping…".into();
         }
-        self.message = "Arresto richiesto".into();
+        self.message = "Stop requested".into();
     }
     fn read_draft(&self) -> Result<Config> {
         let mut next = self.draft.clone();
@@ -235,7 +235,7 @@ impl Desktop {
             .trim()
             .replace(',', ".")
             .parse()
-            .map_err(|_| anyhow::anyhow!("Inserisci una difficoltà share numerica"))?;
+            .map_err(|_| anyhow::anyhow!("Enter a numeric share difficulty"))?;
         next.validate()?;
         Ok(next)
     }
@@ -256,7 +256,7 @@ impl Desktop {
         };
         // Keep the current worker running if validation or saving fails.
         if let Err(e) = next.save(&self.path) {
-            self.error(format!("Salvataggio fallito: {e:#}"));
+            self.error(format!("Save failed: {e:#}"));
             return;
         }
         let changed = self.config.mining_changed(&next);
@@ -270,24 +270,24 @@ impl Desktop {
             if self.config.notifications.enabled() {
                 self.notifications.authorize();
             } else {
-                self.notification_status = "Notifiche disattivate nell’app".into();
+                self.notification_status = "Notifications disabled in app".into();
             }
         }
         if self.lifecycle.reconfigure(changed) {
             if let Some(h) = &self.worker {
                 h.stop();
             }
-            self.stats.state = "Riavvio…".into();
-            self.message = "Impostazioni salvate · riavvio…".into();
-            self.log("Impostazioni", "Riavvio con nuove impostazioni");
+            self.stats.state = "Restarting…".into();
+            self.message = "Settings saved · restarting…".into();
+            self.log("Settings", "Restarting with new settings");
         } else {
             self.message = if appearance_only {
-                "Aspetto salvato"
+                "Appearance saved"
             } else {
-                "Impostazioni salvate"
+                "Settings saved"
             }
             .into();
-            self.log("Impostazioni", self.message.clone());
+            self.log("Settings", self.message.clone());
         }
     }
     fn benchmark(&mut self) {
@@ -310,7 +310,7 @@ impl Desktop {
             .account_url(&self.config.bitcoin_address)
             .and_then(|url| Ok(Command::new("/usr/bin/open").arg(url).spawn()?))
         {
-            self.error(format!("Apertura account: {e:#}"));
+            self.error(format!("Open pool account: {e:#}"));
         }
     }
     fn show(&self) {
@@ -355,9 +355,9 @@ impl Desktop {
                     if let Some(event) = &stats.event {
                         self.notifications.event(event, &self.config.notifications);
                         let (kind, text) = match event {
-                            MinerEvent::AcceptedShare => ("Share", "Share accettata".into()),
-                            MinerEvent::BlockCandidate => ("Blocco", "Candidati blocco".into()),
-                            MinerEvent::Error(e) => ("Errore", e.clone()),
+                            MinerEvent::AcceptedShare => ("Share", "Share accepted".into()),
+                            MinerEvent::BlockCandidate => ("Block", "Block candidates".into()),
+                            MinerEvent::Error(e) => ("Error", e.clone()),
                         };
                         self.log(kind, text);
                     }
@@ -392,19 +392,19 @@ impl Desktop {
                     self.stats.network_difficulty = None;
                     self.stats.share_difficulty = None;
                     self.stats.state = if was == Some(Work::Benchmark) {
-                        "Benchmark terminato"
+                        "Benchmark finished"
                     } else {
-                        "Mining fermo"
+                        "Mining stopped"
                     }
                     .into();
-                    self.log("Sessione", self.stats.state.clone());
+                    self.log("Session", self.stats.state.clone());
                     if was == Some(Work::Mining) {
                         self.history
                             .push_back((self.launched.elapsed().as_secs_f64(), 0.0));
                     }
                     if restart {
                         self.launch(Work::Mining, self.config.clone());
-                        self.message = "Mining riavviato".into();
+                        self.message = "Mining restarted".into();
                     }
                 }
             }
@@ -571,10 +571,10 @@ impl Desktop {
                             .color(c.muted),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("×").on_hover_text("Nascondi").clicked() {
+                        if ui.button("×").on_hover_text("Hide").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                         }
-                        if ui.button("−").on_hover_text("Riduci a icona").clicked() {
+                        if ui.button("−").on_hover_text("Minimize").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                     });
@@ -593,10 +593,10 @@ impl Desktop {
                 });
                 ui.add_space(14.0);
                 for (page, text) in [
-                    (Page::Overview, "Panoramica"),
-                    (Page::Mining, "Mining e wallet"),
-                    (Page::Appearance, "Aspetto"),
-                    (Page::Activity, "Attività"),
+                    (Page::Overview, "Overview"),
+                    (Page::Mining, "Mining & wallet"),
+                    (Page::Appearance, "Appearance"),
+                    (Page::Activity, "Activity"),
                 ] {
                     let active = self.page == page;
                     let button = egui::Button::new(RichText::new(text).color(if active {
@@ -633,13 +633,13 @@ impl Desktop {
         ui.horizontal(|ui| {
             let running = self.lifecycle.work == Some(Work::Mining);
             let label = if self.lifecycle.stopping {
-                "Riavvio / arresto…"
+                "Restarting / stopping…"
             } else if running {
-                "Mining in esecuzione"
+                "Mining active"
             } else if self.lifecycle.work == Some(Work::Benchmark) {
                 "Benchmark GPU"
             } else {
-                "Inattivo"
+                "Idle"
             };
             let (dot, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
             ui.painter().circle_filled(
@@ -656,7 +656,7 @@ impl Desktop {
                 if ui
                     .add_enabled(
                         self.worker.is_some(),
-                        egui::Button::new("Ferma mining").min_size(Vec2::new(124.0, 38.0)),
+                        egui::Button::new("Stop mining").min_size(Vec2::new(124.0, 38.0)),
                     )
                     .clicked()
                 {
@@ -666,7 +666,7 @@ impl Desktop {
                     .add_enabled(
                         !self.lifecycle.want_mining,
                         egui::Button::new(
-                            RichText::new("Avvia mining")
+                            RichText::new("Start mining")
                                 .color(accent_foreground(c.accent))
                                 .strong(),
                         )
@@ -696,15 +696,15 @@ impl Desktop {
             "—".into()
         };
         ui.columns(3, |cols| {
-            metric(&mut cols[0], c, "HASHRATE ATTUALE", &tray::rate(speed), "");
+            metric(&mut cols[0], c, "CURRENT HASHRATE", &tray::rate(speed), "");
             metric(
                 &mut cols[1],
                 c,
-                "SHARE ACCETTATE",
+                "ACCEPTED SHARES",
                 &self.stats.accepted.to_string(),
-                &format!("{} rifiutate", self.stats.rejected),
+                &format!("{} rejected", self.stats.rejected),
             );
-            metric(&mut cols[2], c, "TEMPO DI SESSIONE", &uptime, "");
+            metric(&mut cols[2], c, "SESSION TIME", &uptime, "");
         });
         ui.add_space(8.0);
         ui.columns(2, |cols| {
@@ -734,7 +734,7 @@ impl Desktop {
                     if ui
                         .add_enabled(
                             !self.config.bitcoin_address.is_empty(),
-                            egui::Button::new("Account pool ↗"),
+                            egui::Button::new("Pool account ↗"),
                         )
                         .clicked()
                     {
@@ -747,7 +747,7 @@ impl Desktop {
             ui.columns(3, |cols| {
                 detail(
                     &mut cols[0],
-                    "Difficoltà share",
+                    "Share difficulty",
                     self.stats
                         .share_difficulty
                         .map(number)
@@ -756,7 +756,7 @@ impl Desktop {
                 );
                 detail(
                     &mut cols[1],
-                    "Difficoltà rete",
+                    "Network difficulty",
                     self.stats
                         .network_difficulty
                         .map(number)
@@ -765,7 +765,7 @@ impl Desktop {
                 );
                 detail(
                     &mut cols[2],
-                    "Tempo medio per share",
+                    "Average share time",
                     self.stats
                         .share_difficulty
                         .filter(|_| speed > 0.0)
@@ -775,7 +775,7 @@ impl Desktop {
                 );
             });
             ui.add_space(8.0);
-            note(ui, "WALLET REWARD", c);
+            note(ui, "REWARD ADDRESS", c);
             ui.label(
                 RichText::new(if self.config.bitcoin_address.is_empty() {
                     "—"
@@ -789,7 +789,7 @@ impl Desktop {
                 note(
                     ui,
                     format!(
-                        "{} · {} candidati blocco",
+                        "{} · {} block candidates",
                         self.stats.gpu, self.stats.block_candidates
                     ),
                     c,
@@ -853,14 +853,14 @@ impl Desktop {
         painter.text(
             egui::pos2(r.left(), r.bottom() + 13.0),
             egui::Align2::LEFT_CENTER,
-            "Inizio intervallo",
+            "Start of interval",
             egui::FontId::proportional(10.0),
             c.muted,
         );
         painter.text(
             egui::pos2(r.right(), r.bottom() + 13.0),
             egui::Align2::RIGHT_CENTER,
-            "Adesso",
+            "Now",
             egui::FontId::proportional(10.0),
             c.muted,
         );
@@ -868,7 +868,7 @@ impl Desktop {
             painter.text(
                 r.center(),
                 egui::Align2::CENTER_CENTER,
-                "Nessun dato",
+                "No data",
                 egui::FontId::proportional(13.0),
                 c.muted,
             );
@@ -891,13 +891,13 @@ impl Desktop {
             painter.circle_filled(p, 4.0, c.accent);
             response.on_hover_ui(|ui| {
                 ui.strong(tray::rate(*value));
-                ui.label(format!("{} fa", duration(now - t)));
+                ui.label(format!("{} ago", duration(now - t)));
             });
         }
     }
     fn mining_settings(&mut self, ui: &mut egui::Ui, c: Colors) {
         card(c).show(ui, |ui| {
-            note(ui, "WALLET REWARD", c);
+            note(ui, "REWARD ADDRESS", c);
             ui.add(
                 egui::TextEdit::singleline(&mut self.draft.bitcoin_address)
                     .hint_text("bc1…")
@@ -906,7 +906,7 @@ impl Desktop {
             );
             ui.add_space(6.0);
             ui.columns(2, |cols| {
-                note(&mut cols[0], "POOL SOLO MINING", c);
+                note(&mut cols[0], "SOLO MINING POOL", c);
                 egui::ComboBox::from_id_salt("pool")
                     .selected_text(self.draft.pool.name())
                     .width(240.0)
@@ -918,9 +918,9 @@ impl Desktop {
                 note(
                     &mut cols[1],
                     if self.draft.pool == Pool::Solopool {
-                        "DIFFICOLTÀ SHARE · INTERO ≥ 1"
+                        "SHARE DIFFICULTY · INTEGER ≥ 1"
                     } else {
-                        "DIFFICOLTÀ SHARE"
+                        "SHARE DIFFICULTY"
                     },
                     c,
                 );
@@ -934,7 +934,7 @@ impl Desktop {
             ui.separator();
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Duty cycle GPU").strong());
+                ui.label(RichText::new("GPU duty cycle").strong());
                 ui.label(
                     RichText::new(format!("{}%", self.draft.gpu_load))
                         .color(c.accent_text)
@@ -946,17 +946,17 @@ impl Desktop {
         ui.add_space(10.0);
         ui.columns(2, |cols| {
             card(c).show(&mut cols[0], |ui| {
-                ui.label(RichText::new("Notifiche").size(17.0).strong());
+                ui.label(RichText::new("Notifications").size(17.0).strong());
                 ui.horizontal_wrapped(|ui| {
                     ui.checkbox(
                         &mut self.draft.notifications.accepted_share,
-                        "Share accettate",
+                        "Accepted shares",
                     );
                     ui.checkbox(
                         &mut self.draft.notifications.block_candidate,
-                        "Candidati blocco",
+                        "Block candidates",
                     );
-                    ui.checkbox(&mut self.draft.notifications.error, "Errori");
+                    ui.checkbox(&mut self.draft.notifications.error, "Errors");
                 });
                 if !self.notification_status.is_empty() {
                     note(ui, &self.notification_status, c);
@@ -969,7 +969,7 @@ impl Desktop {
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .add_enabled(self.worker.is_none(), egui::Button::new("Esegui (3 s)"))
+                            .add_enabled(self.worker.is_none(), egui::Button::new("Run (3 s)"))
                             .clicked()
                         {
                             self.benchmark();
@@ -985,7 +985,7 @@ impl Desktop {
                     );
                 }
                 if self.worker.is_some() {
-                    note(ui, "Disponibile a mining fermo", c);
+                    note(ui, "Available when mining is stopped", c);
                 }
             });
         });
@@ -993,12 +993,12 @@ impl Desktop {
 
     fn appearance(&mut self, ui: &mut egui::Ui, c: Colors) {
         card(c).show(ui, |ui| {
-            ui.label(RichText::new("Modalità").size(17.0).strong());
+            ui.label(RichText::new("Mode").size(17.0).strong());
             ui.horizontal(|ui| {
                 for (mode, label) in [
-                    (ThemeMode::Light, "Chiara"),
-                    (ThemeMode::Dark, "Scura"),
-                    (ThemeMode::System, "Sistema"),
+                    (ThemeMode::Light, "Light"),
+                    (ThemeMode::Dark, "Dark"),
+                    (ThemeMode::System, "System"),
                 ] {
                     ui.selectable_value(&mut self.draft.appearance.mode, mode, label);
                 }
@@ -1006,7 +1006,7 @@ impl Desktop {
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(6.0);
-            ui.label(RichText::new("Tema").size(17.0).strong());
+            ui.label(RichText::new("Theme").size(17.0).strong());
             ui.horizontal(|ui| {
                 for (palette, label) in [
                     (Palette::Graphite, "Graphite"),
@@ -1019,14 +1019,14 @@ impl Desktop {
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(6.0);
-            ui.label(RichText::new("Colore d’accento").size(17.0).strong());
+            ui.label(RichText::new("Accent color").size(17.0).strong());
             ui.horizontal(|ui| {
                 for (accent, name) in [
-                    ([245, 158, 66], "Ambra"),
-                    ([60, 194, 218], "Ciano"),
-                    ([167, 139, 250], "Viola"),
-                    ([244, 114, 151], "Rosa"),
-                    ([91, 201, 147], "Menta"),
+                    ([245, 158, 66], "Amber"),
+                    ([60, 194, 218], "Cyan"),
+                    ([167, 139, 250], "Purple"),
+                    ([244, 114, 151], "Pink"),
+                    ([91, 201, 147], "Mint"),
                 ] {
                     let selected = self.draft.appearance.accent == accent;
                     let b = egui::Button::new(
@@ -1043,7 +1043,7 @@ impl Desktop {
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Personalizzato");
+                ui.label("Custom");
                 ui.color_edit_button_srgb(&mut self.draft.appearance.accent);
             });
         });
@@ -1052,9 +1052,9 @@ impl Desktop {
         ui.horizontal(|ui| {
             if self.page == Page::Mining {
                 let label = if self.lifecycle.want_mining {
-                    "Salva e riavvia mining"
+                    "Save & restart mining"
                 } else {
-                    "Salva impostazioni"
+                    "Save settings"
                 };
                 if ui
                     .add(
@@ -1070,16 +1070,16 @@ impl Desktop {
                 {
                     self.save(false);
                 }
-                if ui.button("Scarta modifiche").clicked() {
+                if ui.button("Discard changes").clicked() {
                     self.draft = self.config.clone();
                     self.difficulty = self.config.share_difficulty.to_string();
-                    self.message = "Modifiche scartate".into();
+                    self.message = "Changes discarded".into();
                 }
             } else {
                 if ui
                     .add(
                         egui::Button::new(
-                            RichText::new("Salva aspetto")
+                            RichText::new("Save appearance")
                                 .strong()
                                 .color(accent_foreground(c.accent)),
                         )
@@ -1090,7 +1090,7 @@ impl Desktop {
                 {
                     self.save(true);
                 }
-                if ui.button("Ripristina salvato").clicked() {
+                if ui.button("Restore saved").clicked() {
                     self.draft.appearance = self.config.appearance.clone();
                 }
             }
@@ -1098,16 +1098,16 @@ impl Desktop {
     }
     fn activity(&mut self, ui: &mut egui::Ui, c: Colors) {
         ui.horizontal(|ui| {
-            ui.label("Conserva");
+            ui.label("Keep");
             let mut days = self.config.log_retention_days;
             egui::ComboBox::from_id_salt("retention")
                 .selected_text(if days == 0 {
-                    "Tutto".into()
+                    "All".into()
                 } else {
-                    format!("{days} giorni")
+                    format!("{days} days")
                 })
                 .show_ui(ui, |ui| {
-                    for (value, label) in [(7, "7 giorni"), (30, "30 giorni"), (0, "Tutto")] {
+                    for (value, label) in [(7, "7 days"), (30, "30 days"), (0, "All")] {
                         ui.selectable_value(&mut days, value, label);
                     }
                 });
@@ -1122,15 +1122,15 @@ impl Desktop {
                         self.config = next;
                         self.draft.log_retention_days = days;
                     }
-                    Err(e) => self.message = format!("Registro: {e:#}"),
+                    Err(e) => self.message = format!("Log: {e:#}"),
                 }
             }
-            note(ui, format!("{} eventi", self.journal.entries.len()), c);
+            note(ui, format!("{} events", self.journal.entries.len()), c);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Svuota log").clicked()
+                if ui.button("Clear log").clicked()
                     && let Err(e) = self.journal.clear()
                 {
-                    self.message = format!("Registro: {e:#}");
+                    self.message = format!("Log: {e:#}");
                 }
             });
         });
@@ -1139,17 +1139,17 @@ impl Desktop {
         ui.horizontal(|ui| {
             ui.add_sized(
                 [widths[0], 22.0],
-                egui::Label::new(RichText::new("Data e ora").strong()),
+                egui::Label::new(RichText::new("Date and time").strong()),
             );
             ui.add_sized(
                 [widths[1], 22.0],
-                egui::Label::new(RichText::new("Tipo").strong()),
+                egui::Label::new(RichText::new("Type").strong()),
             );
-            ui.strong("Messaggio");
+            ui.strong("Message");
         });
         ui.separator();
         if self.journal.entries.is_empty() {
-            note(ui, "Nessun evento", c);
+            note(ui, "No events", c);
         }
         egui::ScrollArea::vertical()
             .id_salt("log_rows")
@@ -1164,7 +1164,7 @@ impl Desktop {
                         ui.add_sized(
                             [widths[1], 22.0],
                             egui::Label::new(RichText::new(&entry.kind).size(12.0).color(
-                                if entry.kind == "Errore" {
+                                if entry.kind == "Error" {
                                     Color32::from_rgb(235, 105, 105)
                                 } else {
                                     c.muted
@@ -1265,9 +1265,9 @@ fn number(value: f64) -> String {
 }
 fn duration(seconds: f64) -> String {
     if seconds >= 86400.0 {
-        format!("{:.1} giorni", seconds / 86400.0)
+        format!("{:.1} days", seconds / 86400.0)
     } else if seconds >= 3600.0 {
-        format!("{:.1} ore", seconds / 3600.0)
+        format!("{:.1} hours", seconds / 3600.0)
     } else if seconds >= 60.0 {
         format!("{:.1} min", seconds / 60.0)
     } else {
