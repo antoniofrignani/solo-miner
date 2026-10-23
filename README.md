@@ -42,6 +42,8 @@ cargo run --release -- --gpu-check  # GPU self-test and benchmark
 
 Settings are stored in `config.toml` in the app's user directory; `--check` prints the path. The `activity.jsonl` log is in the same directory. Hashrate history and session counters are kept in memory.
 
+Regenerate the bundled icon with `sh scripts/app-icon.sh`.
+
 ## Tests
 
 ```sh

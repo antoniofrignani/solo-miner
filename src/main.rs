@@ -8,6 +8,8 @@ mod desktop;
 #[cfg(target_os = "macos")]
 mod gpu;
 #[cfg(target_os = "macos")]
+mod icon;
+#[cfg(target_os = "macos")]
 mod lifecycle;
 #[cfg(target_os = "macos")]
 mod miner;

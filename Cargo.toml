@@ -1,6 +1,6 @@
 [package]
 name = "solo-miner"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 description = "Open-source Bitcoin solo mining menu bar app for macOS"
 license = "MIT"
@@ -28,6 +28,9 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAppl
 objc2-metal = "0.3"
 objc2-user-notifications = "0.3"
 block2 = "0.6"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.release]
 lto = "thin"

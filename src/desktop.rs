@@ -25,7 +25,7 @@ pub fn run(config: Config, path: PathBuf) -> Result<()> {
             .with_inner_size([960.0, 580.0])
             .with_min_inner_size([880.0, 580.0])
             .with_icon(egui::IconData {
-                rgba: tray::logo_rgba(64),
+                rgba: crate::icon::logo_rgba(64),
                 width: 64,
                 height: 64,
             })
@@ -107,7 +107,7 @@ impl Desktop {
         )?;
         let logo = context.load_texture(
             "logo",
-            egui::ColorImage::from_rgba_unmultiplied([64, 64], &tray::logo_rgba(64)),
+            egui::ColorImage::from_rgba_unmultiplied([64, 64], &crate::icon::logo_rgba(64)),
             Default::default(),
         );
         let mut app = Self {

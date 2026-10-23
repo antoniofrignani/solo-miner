@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3
+
+- Added the app icon to the macOS bundle for notifications and system dialogs.
+
 ## 0.5.2
 
 - English interface, notifications, error messages and documentation.
