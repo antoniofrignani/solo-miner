@@ -1,5 +1,8 @@
+#[cfg(target_os = "macos")]
 mod activity;
-mod config;
+use solo_miner::config;
+#[cfg(target_os = "macos")]
+use solo_miner::{pool, pow};
 #[cfg(target_os = "macos")]
 mod desktop;
 #[cfg(target_os = "macos")]
@@ -10,8 +13,6 @@ mod lifecycle;
 mod miner;
 #[cfg(target_os = "macos")]
 mod notifications;
-mod pool;
-mod pow;
 #[cfg(target_os = "macos")]
 mod tray;
 
@@ -45,8 +46,13 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     #[cfg(target_os = "macos")]
-    desktop::run(config, path)?;
+    {
+        desktop::run(config, path)
+    }
     #[cfg(not(target_os = "macos"))]
-    anyhow::bail!("L'interfaccia richiede macOS. Usa --check per controllare la configurazione.");
-    Ok(())
+    {
+        anyhow::bail!(
+            "Il mining richiede macOS e Metal. Su questa piattaforma è disponibile solo --check."
+        )
+    }
 }
