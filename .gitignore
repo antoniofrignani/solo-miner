@@ -1,0 +1,10 @@
+/target/
+/dist/
+.DS_Store
+.env
+.env.*
+/config.toml
+/activity.jsonl
+*.p12
+*.p8
+*.mobileprovision
