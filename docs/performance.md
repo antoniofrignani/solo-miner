@@ -1,5 +1,7 @@
 # GPU performance
 
+For the subsequent double-buffering, two-nonce and exact-dispatch comparison, see [GPU experiments](gpu-experiments.md). Those variants are experimental and are not enabled in the app.
+
 Measured on October 23, 2026, using the system's default Metal device, reported as **Apple M4 Pro**. The app's mining worker was stopped during the comparison. No pool connections or share submissions were used.
 
 The reference is the v0.5.3 kernel with 65,536 nonces per batch. A local harness repeatedly called `Gpu::scan` at 100% duty for five seconds per sample. Measurements include command submission, GPU execution, synchronization and CPU result processing. Warmed samples:
