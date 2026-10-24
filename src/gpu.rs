@@ -7,7 +7,11 @@ use objc2::{
 };
 use objc2_foundation::NSString;
 use objc2_metal::*;
-use std::{cell::RefCell, ptr::NonNull};
+use std::{
+    cell::{Cell, RefCell},
+    ptr::NonNull,
+    rc::Rc,
+};
 
 const MAX_BATCH: u32 = 1_048_576;
 const RESULT_CAPACITY: usize = 1024;
@@ -18,10 +22,50 @@ struct Prepared {
 pub struct Gpu {
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     pipeline: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
-    output: Retained<ProtocolObject<dyn MTLBuffer>>,
+    outputs: [Retained<ProtocolObject<dyn MTLBuffer>>; 2],
+    busy: [Rc<Cell<bool>>; 2],
     pub name: String,
     profile: GpuProfile,
     prepared: RefCell<Option<Prepared>>,
+}
+pub struct Pending {
+    command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    output: Retained<ProtocolObject<dyn MTLBuffer>>,
+    busy: Rc<Cell<bool>>,
+    header: [u8; 80],
+    target: [u8; 32],
+    start: u32,
+    count: u32,
+    diagnostic: bool,
+    completed: Cell<bool>,
+}
+impl Drop for Pending {
+    fn drop(&mut self) {
+        // Cancellation and errors must drain the GPU before reusing shared storage.
+        if !self.completed.get() {
+            self.command.waitUntilCompleted();
+        }
+        self.busy.set(false);
+    }
+}
+impl Pending {
+    fn read(&self) -> Result<Vec<u32>> {
+        self.command.waitUntilCompleted();
+        self.completed.set(true);
+        ensure!(
+            self.command.status() == MTLCommandBufferStatus::Completed,
+            "GPU error: {:?}",
+            self.command.error()
+        );
+        let ptr = self.output.contents().as_ptr().cast::<u32>();
+        let len = if self.diagnostic {
+            self.count as usize * 8
+        } else {
+            (unsafe { ptr.read() } as usize).min(RESULT_CAPACITY) + 1
+        };
+        // The command has completed, and Pending still owns the output slot.
+        Ok(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec())
+    }
 }
 impl Gpu {
     pub fn new() -> Result<Self> {
@@ -37,7 +81,7 @@ impl Gpu {
             )
             .map_err(|e| anyhow!("Metal shader: {e}"))?;
         let function = library
-            .newFunctionWithName(&NSString::from_str("sha256d_scan"))
+            .newFunctionWithName(&NSString::from_str("sha256d_two_interleaved"))
             .context("Missing kernel")?;
         let pipeline = device
             .newComputePipelineStateWithFunction_error(&function)
@@ -45,16 +89,19 @@ impl Gpu {
         let queue = device
             .newCommandQueue()
             .context("Metal command queue unavailable")?;
-        let output = device
-            .newBufferWithLength_options(
-                (RESULT_CAPACITY + 1) * 4,
-                MTLResourceOptions::StorageModeShared,
-            )
-            .context("GPU allocation failed")?;
+        let output = || {
+            device
+                .newBufferWithLength_options(
+                    (RESULT_CAPACITY + 1) * 4,
+                    MTLResourceOptions::StorageModeShared,
+                )
+                .context("GPU allocation failed")
+        };
         let gpu = Self {
             queue,
             pipeline,
-            output,
+            outputs: [output()?, output()?],
+            busy: [Rc::new(Cell::new(false)), Rc::new(Cell::new(false))],
             name,
             profile,
             prepared: RefCell::new(None),
@@ -62,14 +109,14 @@ impl Gpu {
         gpu.self_test()?;
         Ok(gpu)
     }
-    fn dispatch(
+    fn submit_internal(
         &self,
         header: &[u8; 80],
         target: &[u8; 32],
         start: u32,
         count: u32,
         diagnostic: bool,
-    ) -> Result<Vec<u32>> {
+    ) -> Result<Pending> {
         ensure!(
             count > 0
                 && count <= MAX_BATCH
@@ -77,6 +124,12 @@ impl Gpu {
                 && start.checked_add(count - 1).is_some(),
             "Invalid nonce range"
         );
+        let slot = self
+            .busy
+            .iter()
+            .position(|busy| !busy.get())
+            .context("Both GPU output slots are in flight")?;
+        let output = &self.outputs[slot];
         autoreleasepool(|_| {
             let command = self
                 .queue
@@ -88,9 +141,9 @@ impl Gpu {
             encoder.setComputePipelineState(&self.pipeline);
             let params = [start, count, u32::from(diagnostic), RESULT_CAPACITY as u32];
             let prepared = self.prepare(header);
-            // The previous command has completed before this shared buffer is reused.
+            // Only an idle output slot can be reused.
             unsafe {
-                self.output.contents().as_ptr().cast::<u32>().write(0);
+                output.contents().as_ptr().cast::<u32>().write(0);
             }
             // Metal copies setBytes immediately. Buffer stays owned and is read only after GPU completion.
             unsafe {
@@ -109,7 +162,7 @@ impl Gpu {
                     std::mem::size_of_val(&params),
                     2,
                 );
-                encoder.setBuffer_offset_atIndex(Some(&self.output), 0, 3);
+                encoder.setBuffer_offset_atIndex(Some(output), 0, 3);
             }
             let width = self
                 .pipeline
@@ -117,7 +170,7 @@ impl Gpu {
                 .min(self.pipeline.maxTotalThreadsPerThreadgroup());
             encoder.dispatchThreadgroups_threadsPerThreadgroup(
                 MTLSize {
-                    width: (count as usize).div_ceil(width),
+                    width: (count as usize).div_ceil(2).div_ceil(width),
                     height: 1,
                     depth: 1,
                 },
@@ -128,26 +181,56 @@ impl Gpu {
                 },
             );
             encoder.endEncoding();
-            command.commit();
-            command.waitUntilCompleted();
-            ensure!(
-                command.status() == MTLCommandBufferStatus::Completed,
-                "GPU error: {:?}",
-                command.error()
-            );
-            let len = if diagnostic {
-                count as usize * 8
-            } else {
-                let found =
-                    unsafe { self.output.contents().as_ptr().cast::<u32>().read() } as usize;
-                found.min(RESULT_CAPACITY) + 1
+            let pending = Pending {
+                command,
+                output: output.clone(),
+                busy: self.busy[slot].clone(),
+                header: *header,
+                target: *target,
+                start,
+                count,
+                diagnostic,
+                completed: Cell::new(false),
             };
-            // Shared allocation is >= len*4 bytes, naturally aligned, and no command remains in flight.
-            Ok(unsafe {
-                std::slice::from_raw_parts(self.output.contents().as_ptr().cast::<u32>(), len)
-            }
-            .to_vec())
+            self.busy[slot].set(true);
+            pending.command.commit();
+            Ok(pending)
         })
+    }
+    fn dispatch(
+        &self,
+        header: &[u8; 80],
+        target: &[u8; 32],
+        start: u32,
+        count: u32,
+        diagnostic: bool,
+    ) -> Result<Vec<u32>> {
+        self.submit_internal(header, target, start, count, diagnostic)?
+            .read()
+    }
+    pub fn submit(
+        &self,
+        header: &[u8; 80],
+        target: &[u8; 32],
+        start: u32,
+        count: u32,
+    ) -> Result<Pending> {
+        self.submit_internal(header, target, start, count, false)
+    }
+    pub fn complete(&self, pending: Pending) -> Result<Vec<u32>> {
+        let raw = pending.read()?;
+        let (header, target, start, count) =
+            (pending.header, pending.target, pending.start, pending.count);
+        drop(pending);
+        if raw[0] as usize > RESULT_CAPACITY {
+            let half = count / 2;
+            let mut found = self.scan(&header, &target, start, half)?;
+            found.extend(self.scan(&header, &target, start + half, count - half)?);
+            return Ok(found);
+        }
+        let mut found = raw[1..].to_vec();
+        found.sort_unstable();
+        Ok(found)
     }
     pub fn scan(
         &self,
@@ -156,17 +239,7 @@ impl Gpu {
         start: u32,
         count: u32,
     ) -> Result<Vec<u32>> {
-        let raw = self.dispatch(header, target, start, count, false)?;
-        if raw[0] as usize > RESULT_CAPACITY {
-            // Retry overflowing ranges in smaller batches; never drop valid candidates.
-            let half = count / 2;
-            let mut found = self.scan(header, target, start, half)?;
-            found.extend(self.scan(header, target, start + half, count - half)?);
-            return Ok(found);
-        }
-        let mut found = raw[1..].to_vec();
-        found.sort_unstable();
-        Ok(found)
+        self.complete(self.submit(header, target, start, count)?)
     }
     pub fn batch_size(&self) -> u32 {
         self.profile.batch_size()
@@ -236,6 +309,37 @@ mod tests {
         for profile in GpuProfile::ALL {
             let gpu = Gpu::with_profile(profile)?;
             let mut header = pow::genesis_header();
+            for count in [1, 2, 3, 31, 33, 65, 127] {
+                let start = u32::MAX - count + 1;
+                let raw = gpu.dispatch(&header, &[255; 32], start, count, true)?;
+                assert_eq!(raw.len(), count as usize * 8);
+                for (i, words) in raw.as_chunks::<8>().0.iter().enumerate() {
+                    let mut probe = header;
+                    probe[76..80].copy_from_slice(&(start + i as u32).to_le_bytes());
+                    assert_eq!(
+                        words
+                            .iter()
+                            .flat_map(|w| w.to_le_bytes())
+                            .collect::<Vec<_>>(),
+                        pow::hash(&probe)
+                    );
+                }
+            }
+            // Overflow recovery must preserve the other job's in-flight output.
+            let a = gpu.submit(&header, &[255; 32], u32::MAX - 2048, 2049)?;
+            let b = gpu.submit(&[17; 80], &[255; 32], 73, 65)?;
+            assert!(gpu.submit(&header, &[0; 32], 0, 1).is_err());
+            assert_eq!(
+                gpu.complete(a)?,
+                (u32::MAX - 2048..=u32::MAX).collect::<Vec<_>>()
+            );
+            assert_eq!(gpu.complete(b)?, (73..138).collect::<Vec<_>>());
+            let cancelled = gpu.submit(&header, &[255; 32], 3, 127)?;
+            drop(cancelled);
+            assert_eq!(
+                gpu.scan(&header, &[255; 32], 301, 33)?,
+                (301..334).collect::<Vec<_>>()
+            );
             for seed in [0u8, 17, 255] {
                 header[0] = seed;
                 header[64] = seed;

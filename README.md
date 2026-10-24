@@ -21,7 +21,7 @@ Available pools: CKPool Solo, Braiins Solo, SoloPool and Public Pool. **Pool acc
 
 Saving changes to the wallet, pool, difficulty or duty cycle restarts mining. Appearance and notification changes apply without a restart. Closing the window leaves mining active; quit the app from the menu bar or with `⌘Q`.
 
-The duty cycle controls GPU batches and pauses, in 5% increments in the interface. It does not set a power or temperature limit. The pool assigns the actual share difficulty. Block candidates are checked on the CPU before submission; acceptance and rewards depend on the pool and network.
+The duty cycle controls GPU work and pauses, in 5% increments in the interface. Below 100%, the worker drains the pipeline after approximately 50 ms of work, then pauses. Stop and pool messages are checked between batches. It does not set a power or temperature limit. The pool assigns the actual share difficulty. Block candidates are checked on the CPU before submission; acceptance and rewards depend on the pool and network.
 
 ## GPU workload
 
@@ -35,7 +35,7 @@ The duty cycle controls GPU batches and pauses, in 5% increments in the interfac
 
 Save the profile to apply it; active mining restarts automatically. The benchmark uses the selected profile and duty cycle without saving them. Workload changes do not set GPU clocks or a watt limit. Power and performance depend on the Mac, other workloads and thermal conditions.
 
-The engine caches the SHA-256 midstate of each header and returns only matching nonces from the GPU. Every submitted candidate is still checked on the CPU. [Measurements and test coverage](docs/performance.md).
+The engine caches the SHA-256 midstate of each header, processes two nonces per thread with interleaved rounds and keeps two batches in flight. Each batch retains its own job and output buffer; only matching nonces return to the CPU for verification. [Measurements and test coverage](docs/performance.md).
 
 ## Build
 
@@ -72,10 +72,11 @@ Regular tests do not contact external pools. Hardware and network tests are avai
 ```sh
 cargo test --locked metal_profiles_match_cpu_and_preserve_overflow -- --ignored --nocapture
 cargo test --locked gpu_to_stratum_share -- --ignored --nocapture
+cargo test --locked pipeline_benchmark_cancellation_releases_slots -- --ignored --nocapture
 cargo test --locked solopool_live_difficulty_handshake -- --ignored --nocapture
 ```
 
-The first checks GPU hashes, compact output overflow and nonce boundaries against CPU results for every workload profile. The second requires a Metal GPU and uses a local Stratum server. The third checks the SoloPool handshake using saved settings, without submitting shares.
+The first checks GPU hashes, concurrent output, overflow and nonce boundaries against CPU results for every workload profile. The second uses a Metal GPU and a local Stratum server. The third checks GPU cancellation at 5%, 85% and 100% duty. The last checks the SoloPool handshake using saved settings, without submitting shares. Ordinary tests cover clean/non-clean job changes, queued difficulty updates and nonce exhaustion.
 
 ## GitHub Actions
 

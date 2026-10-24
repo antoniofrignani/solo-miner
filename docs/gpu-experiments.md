@@ -1,6 +1,6 @@
 # GPU experiments
 
-Measured on October 24, 2026, on an Apple M4 Pro, macOS 27.0.1. Reference: v0.6.0 (`b4bb339`). The experimental engine and kernels live under `examples/`; the production miner is unchanged.
+Measured on October 24, 2026, on an Apple M4 Pro, macOS 27.0.1. Reference: v0.6.0 (`b4bb339`). The initial comparison used an isolated experimental engine and kernels under `examples/`. The winning combination was subsequently integrated in v0.7.0; see [integrated measurements](performance.md). The examples retain a frozen v0.6.0 reference for reproducibility.
 
 ## Method
 
@@ -54,15 +54,15 @@ The machine-readable [summary](benchmarks/2026-10-24/summary.json) includes samp
 
 ## Recommendation
 
-Test **double buffering with the interleaved two-nonce kernel** in the mining loop next. It is the only tested combination that improves all three profiles and reaches approximately 565 MH/s with even the smallest batch. At that point the larger batch provides no throughput advantage on this Mac; smaller batches are worth considering for responsiveness after measuring job-switch and stop latency.
+The experiment selected **double buffering with the interleaved two-nonce kernel** for integration. It is the only tested combination that improves all three profiles and reaches approximately 565 MH/s with even the smallest batch. At that point the larger batch provides no throughput advantage on this Mac; smaller batches are worth considering for responsiveness after measuring job-switch and stop latency.
 
 Do not enable double buffering alone for all profiles: the Throughput regression is repeatable. Do not adopt two nonces per thread alone: both kernel variants lose throughput. Exact dispatch has no demonstrated performance advantage on the standard profiles.
 
 Double buffering substantially reduces measured gaps between command intervals, but that does not guarantee higher hashing throughput. The original shader's two-command case slows down at large batches despite smaller gaps. The measurements do not isolate the underlying hardware cause; register spilling, occupancy or cache behavior cannot be claimed from these timings.
 
-Before integrating the winning combination, verify clean/new Stratum jobs with pending batches, stale-result handling, nonce ownership, overflow retries, stop/restart and duty-cycle pacing. Measure the integrated miner at the saved duty cycle and under ordinary desktop load. The experiment does not change the production app or its settings.
+Integration verification covers clean/new Stratum jobs with pending batches, stale-result handling, nonce ownership, overflow retries, stop/restart and duty-cycle pacing. The [performance report](performance.md) records subsequent benchmark results at 100% and 85% duty. The experiment harness does not change app settings.
 
-The cross-batch `double` variants require the mining loop to retain job and nonce-range ownership until each pending result completes. A synchronous `Gpu::scan` cannot pipeline the caller's next batch on its own. `double_split` measures the alternative that can remain behind that API. Job changes, cancellation, duty-cycle pacing and accepted-share attribution still require integration tests before adoption.
+The cross-batch `double` variants require the mining loop to retain job and nonce-range ownership until each pending result completes. A synchronous `Gpu::scan` cannot pipeline the caller's next batch on its own. `double_split` measures the alternative that can remain behind that API. Integration tests cover job changes, cancellation, duty-cycle pacing and accepted-share attribution.
 
 All three production batch sizes are multiples of the pipeline's SIMD width (32). They have no partial final threadgroup to remove. The separate ragged-grid comparison tests nonmultiples. Exact dispatch still requires support for nonuniform threadgroups; see [Apple's dispatchThreads documentation](https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/dispatchthreads(_:threadsperthreadgroup:)).
 

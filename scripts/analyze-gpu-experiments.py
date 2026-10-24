@@ -81,7 +81,8 @@ def analyze_pipeline(path, records):
                         "median_mh_s": statistics.median(r for r, _ in pairs),
                         "min_mh_s": min(r for r, _ in pairs), "max_mh_s": max(r for r, _ in pairs),
                         "median_baseline_mh_s": statistics.median(b for _, b in pairs),
-                        "mean_gain_pct": statistics.mean(gains), "bootstrap_95_pct": [bootstrap[249], bootstrap[9749]]})
+                        "mean_gain_pct": statistics.mean(gains),
+                        "bootstrap_95_pct": [bootstrap[249], bootstrap[9749]] if len(pairs) > 1 else None})
     return {"source": str(path), "metadata": records[0], "excluded_rounds": excluded, "results": summary}
 
 
@@ -97,9 +98,10 @@ def main():
         print(f"\n{report['source']}")
         print("batch | variant | n | baseline MH/s | median MH/s | paired gain | bootstrap 95%")
         for r in report["results"]:
-            low, high = r["bootstrap_95_pct"]
+            interval = r["bootstrap_95_pct"]
+            confidence = f"[{interval[0]:+.2f}, {interval[1]:+.2f}]%" if interval else "insufficient samples"
             print(f"{r['batch']} | {r['variant']} | {r['n']} | {r['median_baseline_mh_s']:.2f} | "
-                  f"{r['median_mh_s']:.2f} | {r['mean_gain_pct']:+.2f}% | [{low:+.2f}, {high:+.2f}]%")
+                  f"{r['median_mh_s']:.2f} | {r['mean_gain_pct']:+.2f}% | {confidence}")
         print(f"Excluded rounds: {report['excluded_rounds']}")
 
 

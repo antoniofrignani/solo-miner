@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- Two GPU batches in flight with independent output buffers.
+- Two nonces per Metal thread with interleaved SHA-256 rounds.
+- Job-aware pending results, clean-job invalidation and nonce reservation before dispatch.
+- Duty-cycle pauses after draining 50 ms work bursts; benchmark uses the same pipeline.
+- Tests for concurrent overflow, job transitions, difficulty changes, nonce exhaustion and cancellation.
+
 ## 0.6.0
 
 - Cached SHA-256 midstates and compact GPU candidate output.
