@@ -10,7 +10,7 @@ At startup, the app checks the GPU, shaders and Metal calculations. If the check
 
 ## Usage
 
-Open **Solo Miner.app**, choose Solo or Pool, configure the provider and GPU duty cycle, then save and start mining. Address-based providers use the saved Bitcoin mainnet reward address. Braiins Pool and f2pool use an account name; set the payout address on their websites.
+Open **Solo Miner.app**, choose Solo or Pool, configure the provider and GPU duty cycle, then save and start mining. The saved Bitcoin mainnet reward address identifies the worker at every available provider.
 
 - **Overview**: hashrate, shares, session time, graph and pool information.
 - **Mining & wallet**: settings, notifications and a 3-second benchmark.
@@ -18,7 +18,7 @@ Open **Solo Miner.app**, choose Solo or Pool, configure the provider and GPU dut
 - **Activity**: disk log with 7-day, 30-day or unlimited retention.
 - **Updates**: check GitHub releases, download, then install and restart. Optional checks at startup.
 
-Solo providers: CKPool Solo, Braiins Solo, Public Pool, SoloPool and OnPool. Pool providers: SoloPool, Public Pool, OCEAN, OnPool, Braiins Pool and f2pool. SoloPool supports a configurable solo/pool split. Provider endpoints, account requirements and verification: [docs/pools.md](docs/pools.md).
+Solo providers: CKPool Solo, Braiins Solo, Public Pool, SoloPool and OnPool. Pool providers: SoloPool, Public Pool, OCEAN and OnPool. SoloPool supports a configurable solo/pool split. Provider endpoints and verification: [docs/pools.md](docs/pools.md).
 
 Saving changes to the wallet, mode, provider, SoloPool split, difficulty or duty cycle restarts mining. Appearance and notification changes apply without a restart. Closing the window leaves mining active; quit the app from the menu bar or with `⌘Q`.
 
@@ -76,9 +76,10 @@ cargo test --locked gpu_to_stratum_share -- --ignored --nocapture
 cargo test --locked pipeline_benchmark_cancellation_releases_slots -- --ignored --nocapture
 cargo test --locked solopool_live_difficulty_handshake -- --ignored --nocapture
 cargo test --locked wallet_pools_live_handshake -- --ignored --nocapture
+cargo test --locked public_pool_live_shares -- --ignored --nocapture
 ```
 
-The first checks GPU hashes, concurrent output, overflow and nonce boundaries against CPU results for every workload profile. The second uses a Metal GPU and a local Stratum server. The third checks GPU cancellation at 5%, 85% and 100% duty. The final two check live wallet-pool handshakes using saved settings, without submitting shares. Ordinary tests cover clean/non-clean job changes, queued difficulty updates, provider authentication parameters and nonce exhaustion.
+The first checks GPU hashes, concurrent output, overflow and nonce boundaries against CPU results for every workload profile. The second uses a Metal GPU and a local Stratum server. The third checks GPU cancellation at 5%, 85% and 100% duty. The next two check live wallet-pool handshakes using saved settings, without submitting shares. The final test sends real GPU shares to Public Pool in Solo and PPLNS modes using the saved wallet; run it explicitly. Ordinary tests cover clean/non-clean job changes, queued difficulty updates, provider authentication parameters and nonce exhaustion.
 
 ## GitHub Actions
 

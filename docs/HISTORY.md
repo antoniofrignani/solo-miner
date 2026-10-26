@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
-- Checked live Stratum authorization and job delivery for the existing solo providers, plus OCEAN and OnPool.
-- Added Public Pool PPLNS through its documented Stratum V1 endpoint and checked live authorization and job delivery.
-- Added Solo/Pool mode selection, six shared-pool providers and a SoloPool split control.
+- Checked live Stratum authorization and job delivery for every available provider and mode.
+- Confirmed real GPU shares accepted by Public Pool in Solo and PPLNS modes.
+- Added Public Pool PPLNS through its Stratum V1 endpoint.
+- Added Solo/Pool mode selection, four shared-pool providers and a SoloPool split control.
+- Disabled Braiins Pool and f2pool until registered-account attribution can be verified.
 - Saved mode, provider and account names outside the legacy TOML settings for updater rollback compatibility.
 - Stopped sending difficulty suggestions to providers that reject or ignore them.
 

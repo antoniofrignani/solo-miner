@@ -928,7 +928,9 @@ impl Desktop {
                 }
                 if ui
                     .add_enabled(
-                        !self.lifecycle.want_mining,
+                        !self.lifecycle.want_mining
+                            && self.config.validate().is_ok()
+                            && self.config.mining_username().is_ok(),
                         egui::Button::new(
                             RichText::new("Start mining")
                                 .color(accent_foreground(c.accent))
@@ -997,8 +999,7 @@ impl Desktop {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add_enabled(
-                            !self.config.requires_address()
-                                || !self.config.bitcoin_address.is_empty(),
+                            self.config.validate().is_ok() && self.config.mining_username().is_ok(),
                             egui::Button::new("Pool account ↗"),
                         )
                         .clicked()
@@ -1206,20 +1207,16 @@ impl Desktop {
                 }
             });
             ui.add_space(6.0);
-            if self.draft.pool.needs_account() {
-                note(ui, "POOL ACCOUNT NAME", c);
-                let account = if self.draft.pool == Pool::BraiinsPool { &mut self.draft.braiins_account } else { &mut self.draft.f2pool_account };
-                ui.add(egui::TextEdit::singleline(account).hint_text("Account name").desired_width(f32::INFINITY));
-                note(ui, "Use a registered account; set its payout address on the pool site", c);
-            } else {
-                note(ui, "REWARD ADDRESS", c);
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.draft.bitcoin_address)
-                        .hint_text("bc1…")
-                        .desired_width(f32::INFINITY)
-                        .margin(egui::Margin::symmetric(8, 5)),
-                );
+            if !self.draft.pool.supports(self.draft.mining_mode) {
+                note(ui, "This provider is disabled. Choose another pool.", c);
             }
+            note(ui, "REWARD ADDRESS", c);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.draft.bitcoin_address)
+                    .hint_text("bc1…")
+                    .desired_width(f32::INFINITY)
+                    .margin(egui::Margin::symmetric(8, 5)),
+            );
             ui.add_space(6.0);
             ui.columns(2, |cols| {
                 note(&mut cols[0], "MINING POOL", c);

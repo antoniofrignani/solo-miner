@@ -81,11 +81,15 @@ impl Config {
             "Unsupported settings version: {}",
             config.version
         );
-        config.validate()?;
+        config.validate_inner(true)?;
         Ok(config)
     }
 
     pub fn validate(&self) -> Result<()> {
+        self.validate_inner(false)
+    }
+
+    fn validate_inner(&self, allow_disabled_pool: bool) -> Result<()> {
         ensure!(
             [0, 7, 30].contains(&self.log_retention_days),
             "Invalid log retention"
@@ -96,8 +100,11 @@ impl Config {
             "Solo percentage must be between 0 and 100"
         );
         ensure!(
-            self.pool.supports(self.mining_mode),
-            "Pool does not support the selected mining mode"
+            self.pool.supports(self.mining_mode)
+                || (allow_disabled_pool
+                    && self.mining_mode == MiningMode::Pool
+                    && self.pool.needs_account()),
+            "Pool unavailable for the selected mining mode"
         );
         if self.pool == Pool::Solopool && self.mining_mode == MiningMode::Pool {
             ensure!(
@@ -196,13 +203,12 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn shared_pool_options_keep_legacy_settings_readable() -> Result<()> {
+    fn disabled_account_pools_load_but_cannot_start_or_save() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("config.toml");
         let config = Config {
-            pool: Pool::BraiinsPool,
+            pool: Pool::Ocean,
             mining_mode: MiningMode::Pool,
-            braiins_account: "worker_account".into(),
             bitcoin_address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
             ..Config::default()
         };
@@ -210,8 +216,22 @@ mod tests {
         let old: Config = toml::from_str(&fs::read_to_string(&path)?)?;
         assert_eq!(old.pool, Pool::Ckpool);
         assert_eq!(old.bitcoin_address, config.bitcoin_address);
-        assert_eq!(Config::load(&path)?, config);
-        assert_eq!(config.mining_username()?, "worker_account.mac");
+        for pool in [Pool::BraiinsPool, Pool::F2pool] {
+            let mut options: PoolOptions =
+                serde_json::from_slice(&fs::read(path.with_file_name("pool-options.json"))?)?;
+            options.pool = Some(pool);
+            options.braiins_account = "worker_account".into();
+            options.f2pool_account = "worker_account".into();
+            fs::write(
+                path.with_file_name("pool-options.json"),
+                serde_json::to_vec(&options)?,
+            )?;
+            let loaded = Config::load(&path)?;
+            assert_eq!(loaded.pool, pool);
+            assert_eq!(loaded.mining_username()?, "worker_account.mac");
+            assert!(loaded.validate().is_err());
+            assert!(loaded.save(&path).is_err());
+        }
         Ok(())
     }
 

@@ -645,7 +645,7 @@ fn next_extra(counter: &mut u128, size: usize) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use std::{
-        io::{BufRead, BufReader},
+        io::{BufRead, BufReader, Read},
         net::TcpListener,
     };
     #[test]
@@ -903,12 +903,23 @@ mod tests {
         use crate::pool::{MiningMode, Pool};
         let saved = Config::load(&crate::config::config_path()?)?;
         crate::config::validate_address(&saved.bitcoin_address)?;
+        let mut key = [0u8; 32];
+        std::fs::File::open("/dev/urandom")?.read_exact(&mut key)?;
+        let key = bitcoin::secp256k1::SecretKey::from_slice(&key)?;
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+        let public_key = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &key);
+        let isolated_address = bitcoin::Address::p2pkh(
+            bitcoin::PublicKey::new(public_key),
+            bitcoin::Network::Bitcoin,
+        )
+        .to_string();
         for (pool, mode) in [
             (Pool::Ckpool, MiningMode::Solo),
             (Pool::Braiins, MiningMode::Solo),
             (Pool::Public, MiningMode::Solo),
             (Pool::Public, MiningMode::Pool),
             (Pool::Solopool, MiningMode::Solo),
+            (Pool::Solopool, MiningMode::Pool),
             (Pool::Ocean, MiningMode::Pool),
             (Pool::Onpool, MiningMode::Solo),
             (Pool::Onpool, MiningMode::Pool),
@@ -916,7 +927,16 @@ mod tests {
             let config = Config {
                 pool,
                 mining_mode: mode,
-                solo_percent: 100,
+                solo_percent: if pool == Pool::Solopool && mode == MiningMode::Pool {
+                    0
+                } else {
+                    100
+                },
+                bitcoin_address: if pool == Pool::Solopool && mode == MiningMode::Pool {
+                    isolated_address.clone()
+                } else {
+                    saved.bitcoin_address.clone()
+                },
                 ..saved.clone()
             };
             let stop = Arc::new(AtomicBool::new(false));
@@ -947,6 +967,52 @@ mod tests {
                 pool.name()
             );
             eprintln!("{} {:?}: authorized, valid job", pool.name(), mode);
+        }
+        Ok(())
+    }
+    #[test]
+    #[ignore = "Uses a Metal GPU and submits real shares to Public Pool with the saved wallet"]
+    fn public_pool_live_shares() -> Result<()> {
+        use crate::pool::{MiningMode, Pool};
+        let saved = Config::load(&crate::config::config_path()?)?;
+        crate::config::validate_address(&saved.bitcoin_address)?;
+        let gpu = Gpu::new()?;
+        for mode in [MiningMode::Solo, MiningMode::Pool] {
+            let config = Config {
+                pool: Pool::Public,
+                mining_mode: mode,
+                gpu_load: 100,
+                share_difficulty: 1.0,
+                ..saved.clone()
+            };
+            config.validate()?;
+            let stop = Arc::new(AtomicBool::new(false));
+            let deadline = stop.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(90));
+                deadline.store(true, Ordering::Relaxed);
+            });
+            let accepted = std::sync::atomic::AtomicBool::new(false);
+            let stream = connect(config.endpoint(), &stop)?;
+            session(
+                stream,
+                &config,
+                &stop,
+                &gpu.name,
+                &|stats| {
+                    if stats.accepted > 0 {
+                        accepted.store(true, Ordering::Relaxed);
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                },
+                &gpu,
+            )?;
+            ensure!(
+                accepted.load(Ordering::Relaxed),
+                "Public Pool {:?} did not accept a share within 90 seconds",
+                mode
+            );
+            eprintln!("Public Pool {:?}: accepted GPU share", mode);
         }
         Ok(())
     }

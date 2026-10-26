@@ -25,15 +25,13 @@ pub enum Pool {
 }
 
 impl Pool {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 6] = [
         Self::Ckpool,
         Self::Braiins,
         Self::Solopool,
         Self::Public,
         Self::Ocean,
         Self::Onpool,
-        Self::BraiinsPool,
-        Self::F2pool,
     ];
     pub const SOLO: [Self; 5] = [
         Self::Ckpool,
@@ -42,14 +40,7 @@ impl Pool {
         Self::Public,
         Self::Onpool,
     ];
-    pub const SHARED: [Self; 6] = [
-        Self::Solopool,
-        Self::Public,
-        Self::Ocean,
-        Self::Onpool,
-        Self::BraiinsPool,
-        Self::F2pool,
-    ];
+    pub const SHARED: [Self; 4] = [Self::Solopool, Self::Public, Self::Ocean, Self::Onpool];
 
     pub fn supports(self, mode: MiningMode) -> bool {
         match mode {

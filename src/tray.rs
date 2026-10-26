@@ -143,10 +143,10 @@ impl Tray {
             config.share_difficulty
         ));
         self.start
-            .set_enabled(!busy && config.mining_username().is_ok());
+            .set_enabled(!busy && config.validate().is_ok() && config.mining_username().is_ok());
         self.stop.set_enabled(busy);
         self.account
-            .set_enabled(!config.requires_address() || !config.bitcoin_address.is_empty());
+            .set_enabled(config.validate().is_ok() && config.mining_username().is_ok());
     }
 }
 pub fn rate(value: f64) -> String {
