@@ -83,9 +83,7 @@ The first checks GPU hashes, concurrent output, overflow and nonce boundaries ag
 
 ## GitHub Actions
 
-Every push to `main` and every pull request runs formatting, Clippy, tests and a build on macOS Apple Silicon. Archives and SHA-256 checksums are available as [build artifacts](https://github.com/antoniofrignani/solo-miner/actions/workflows/ci.yml).
-
-A `vX.Y.Z` tag matching the version in `Cargo.toml` publishes a release with the same archives after the build succeeds.
+A `vX.Y.Z` tag matching the version in `Cargo.toml` runs formatting, Clippy, tests and a build on macOS Apple Silicon. After a successful build, GitHub Actions publishes the release archive and SHA-256 checksum. The workflow does not run on branch pushes or pull requests.
 
 [Changelog](docs/HISTORY.md).
 

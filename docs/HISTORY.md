@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Run GitHub Actions only for version tags and use Node.js 24 actions.
+
 ## 0.9.0
 
 - Checked live Stratum authorization and job delivery for every available provider and mode.
