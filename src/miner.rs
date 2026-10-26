@@ -898,12 +898,14 @@ mod tests {
                     "Second batch must be submitted before waiting for the first"
                 );
                 writeln!(self.server, "{}", self.update)?;
-                // Wait for TCP delivery without consuming the update; the next
-                // production Wire::poll must process it before retiring batch 2.
+                // A readable byte is not necessarily a complete Stratum line.
+                // Leave the full update queued for the production Wire::poll.
+                let mut delivered = vec![0; self.update.to_string().len() + 1];
                 let deadline = Instant::now();
                 loop {
-                    match self.client.peek(&mut [0u8; 1]) {
-                        Ok(n) if n > 0 => break,
+                    match self.client.peek(&mut delivered) {
+                        Ok(n) if n == delivered.len() => break,
+                        Ok(_) => {}
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                         other => bail!("Queue fixture delivery: {other:?}"),
                     }
