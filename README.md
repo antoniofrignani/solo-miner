@@ -1,5 +1,7 @@
 # Solo Miner
 
+[![Build](https://github.com/antoniofrignani/solo-miner/actions/workflows/ci.yml/badge.svg)](https://github.com/antoniofrignani/solo-miner/actions/workflows/ci.yml)
+
 Bitcoin miner for macOS, written in Rust. SHA-256d hashing on Metal GPUs, an egui interface and a menu bar icon. MIT license.
 
 ## Platform
