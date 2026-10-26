@@ -1,10 +1,10 @@
 use crate::{
     activity::Journal,
-    config::{Appearance, Config, GpuProfile, Palette, ThemeMode, validate_address},
+    config::{Appearance, Config, GpuProfile, Palette, ThemeMode},
     lifecycle::{Lifecycle, Work},
     miner::{self, MinerEvent, Stats},
     notifications::Notifications,
-    pool::Pool,
+    pool::{MiningMode, Pool},
     tray::{self, Tray},
     updater::{self, Prepared, Release},
 };
@@ -251,7 +251,7 @@ impl Desktop {
         if let Err(e) = self
             .config
             .validate()
-            .and_then(|_| validate_address(&self.config.bitcoin_address))
+            .and_then(|_| self.config.mining_username().map(|_| ()))
         {
             self.error(format!("{e:#}"));
             self.page = Page::Mining;
@@ -278,6 +278,8 @@ impl Desktop {
     fn read_draft(&self) -> Result<Config> {
         let mut next = self.draft.clone();
         next.bitcoin_address = next.bitcoin_address.trim().into();
+        next.braiins_account = next.braiins_account.trim().into();
+        next.f2pool_account = next.f2pool_account.trim().into();
         next.share_difficulty = self
             .difficulty
             .trim()
@@ -867,7 +869,19 @@ impl Desktop {
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                     ui.separator();
-                    ui.label(RichText::new(self.config.pool.name()).size(13.0).strong());
+                    ui.label(
+                        RichText::new(format!(
+                            "{} · {}",
+                            self.config.pool.name(),
+                            if self.config.mining_mode == MiningMode::Solo {
+                                "Solo"
+                            } else {
+                                "Pool"
+                            }
+                        ))
+                        .size(13.0)
+                        .strong(),
+                    );
                     note(
                         ui,
                         format!(
@@ -983,7 +997,8 @@ impl Desktop {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add_enabled(
-                            !self.config.bitcoin_address.is_empty(),
+                            !self.config.requires_address()
+                                || !self.config.bitcoin_address.is_empty(),
                             egui::Button::new("Pool account ↗"),
                         )
                         .clicked()
@@ -992,7 +1007,26 @@ impl Desktop {
                     }
                 });
             });
-            note(ui, self.config.pool.endpoint(), c);
+            note(ui, self.config.endpoint(), c);
+            if self.config.pool == Pool::Solopool {
+                note(
+                    ui,
+                    format!(
+                        "{}% solo · {}% pool",
+                        if self.config.mining_mode == MiningMode::Solo {
+                            100
+                        } else {
+                            self.config.solo_percent
+                        },
+                        if self.config.mining_mode == MiningMode::Solo {
+                            0
+                        } else {
+                            100 - self.config.solo_percent
+                        }
+                    ),
+                    c,
+                );
+            }
             ui.add_space(6.0);
             ui.columns(3, |cols| {
                 detail(
@@ -1025,16 +1059,25 @@ impl Desktop {
                 );
             });
             ui.add_space(8.0);
-            note(ui, "REWARD ADDRESS", c);
-            ui.label(
-                RichText::new(if self.config.bitcoin_address.is_empty() {
-                    "—"
-                } else {
-                    &self.config.bitcoin_address
-                })
-                .monospace()
-                .size(12.0),
-            );
+            if self.config.requires_address() {
+                note(ui, "REWARD ADDRESS", c);
+                ui.label(
+                    RichText::new(&self.config.bitcoin_address)
+                        .monospace()
+                        .size(12.0),
+                );
+            } else {
+                note(ui, "POOL ACCOUNT", c);
+                ui.label(
+                    RichText::new(if self.config.pool == Pool::BraiinsPool {
+                        &self.config.braiins_account
+                    } else {
+                        &self.config.f2pool_account
+                    })
+                    .monospace()
+                    .size(12.0),
+                );
+            }
             if !self.stats.gpu.is_empty() {
                 note(
                     ui,
@@ -1149,39 +1192,83 @@ impl Desktop {
     }
     fn mining_settings(&mut self, ui: &mut egui::Ui, c: Colors) {
         card(c).show(ui, |ui| {
-            note(ui, "REWARD ADDRESS", c);
-            ui.add(
-                egui::TextEdit::singleline(&mut self.draft.bitcoin_address)
-                    .hint_text("bc1…")
-                    .desired_width(f32::INFINITY)
-                    .margin(egui::Margin::symmetric(8, 5)),
-            );
+            ui.horizontal(|ui| {
+                ui.label("Mode");
+                for (mode, label) in [(MiningMode::Solo, "Solo"), (MiningMode::Pool, "Pool")] {
+                    if ui.selectable_value(&mut self.draft.mining_mode, mode, label).clicked() {
+                        if !self.draft.pool.supports(mode) {
+                            self.draft.pool = if mode == MiningMode::Solo { Pool::Ckpool } else { Pool::Solopool };
+                        }
+                        if mode == MiningMode::Pool && self.draft.pool == Pool::Solopool && self.draft.solo_percent == 100 {
+                            self.draft.solo_percent = 0;
+                        }
+                    }
+                }
+            });
+            ui.add_space(6.0);
+            if self.draft.pool.needs_account() {
+                note(ui, "POOL ACCOUNT NAME", c);
+                let account = if self.draft.pool == Pool::BraiinsPool { &mut self.draft.braiins_account } else { &mut self.draft.f2pool_account };
+                ui.add(egui::TextEdit::singleline(account).hint_text("Account name").desired_width(f32::INFINITY));
+                note(ui, "Use a registered account; set its payout address on the pool site", c);
+            } else {
+                note(ui, "REWARD ADDRESS", c);
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.draft.bitcoin_address)
+                        .hint_text("bc1…")
+                        .desired_width(f32::INFINITY)
+                        .margin(egui::Margin::symmetric(8, 5)),
+                );
+            }
             ui.add_space(6.0);
             ui.columns(2, |cols| {
-                note(&mut cols[0], "SOLO MINING POOL", c);
+                note(&mut cols[0], "MINING POOL", c);
                 egui::ComboBox::from_id_salt("pool")
                     .selected_text(self.draft.pool.name())
                     .width(240.0)
                     .show_ui(&mut cols[0], |ui| {
-                        for pool in Pool::ALL {
+                        let choices = if self.draft.mining_mode == MiningMode::Solo { &Pool::SOLO[..] } else { &Pool::SHARED[..] };
+                        for &pool in choices {
                             ui.selectable_value(&mut self.draft.pool, pool, pool.name());
                         }
                     });
-                note(
-                    &mut cols[1],
-                    if self.draft.pool == Pool::Solopool {
-                        "SHARE DIFFICULTY · INTEGER ≥ 1"
-                    } else {
-                        "SHARE DIFFICULTY"
-                    },
-                    c,
-                );
-                cols[1].add(
-                    egui::TextEdit::singleline(&mut self.difficulty)
-                        .desired_width(240.0)
-                        .margin(egui::Margin::symmetric(8, 4)),
-                );
+                if self.draft.pool.accepts_difficulty_suggestion() {
+                    note(
+                        &mut cols[1],
+                        if self.draft.pool == Pool::Solopool { "SHARE DIFFICULTY · INTEGER ≥ 1" } else { "SHARE DIFFICULTY" },
+                        c,
+                    );
+                    cols[1].add(
+                        egui::TextEdit::singleline(&mut self.difficulty)
+                            .desired_width(240.0)
+                            .margin(egui::Margin::symmetric(8, 4)),
+                    );
+                } else {
+                    note(&mut cols[1], "SHARE DIFFICULTY", c);
+                    cols[1].label("Assigned by pool");
+                }
             });
+            if self.draft.pool == Pool::Solopool && self.draft.mining_mode == MiningMode::Pool {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    note(ui, "SOLO / POOL SPLIT", c);
+                    ui.label(format!(
+                        "{}% solo · {}% pool",
+                        self.draft.solo_percent,
+                        100 - self.draft.solo_percent
+                    ));
+                });
+                let width = ui.available_width();
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = width;
+                    ui.add(
+                        egui::Slider::new(&mut self.draft.solo_percent, 0..=99)
+                            .show_value(false)
+                            .step_by(1.0),
+                    )
+                    .on_hover_text("SoloPool may lock decreases for 48 hours after an increase. The ratio also applies to other workers on the same address.");
+                });
+            }
             ui.add_space(6.0);
             ui.separator();
             ui.add_space(8.0);

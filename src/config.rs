@@ -1,4 +1,4 @@
-use crate::pool::Pool;
+use crate::pool::{MiningMode, Pool};
 use anyhow::{Context, Result, ensure};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,15 @@ pub struct Config {
     pub gpu_profile: GpuProfile,
     #[serde(default = "default_share_difficulty")]
     pub share_difficulty: f64,
+    // Kept outside config.toml so an older app can still read settings after rollback.
+    #[serde(skip, default = "default_solo_percent")]
+    pub solo_percent: u8,
+    #[serde(skip)]
+    pub mining_mode: MiningMode,
+    #[serde(skip)]
+    pub braiins_account: String,
+    #[serde(skip)]
+    pub f2pool_account: String,
     #[serde(default)]
     pub notifications: NotificationSettings,
     #[serde(default)]
@@ -39,6 +48,10 @@ impl Default for Config {
             gpu_load: default_gpu_load(),
             gpu_profile: GpuProfile::default(),
             share_difficulty: default_share_difficulty(),
+            solo_percent: default_solo_percent(),
+            mining_mode: MiningMode::Solo,
+            braiins_account: String::new(),
+            f2pool_account: String::new(),
             notifications: NotificationSettings::default(),
             appearance: Appearance::default(),
         }
@@ -54,7 +67,15 @@ impl Config {
             }
             Err(error) => return Err(error).context("Unable to read settings"),
         };
-        let config: Self = toml::from_str(&text).context("Invalid TOML settings")?;
+        let mut config: Self = toml::from_str(&text).context("Invalid TOML settings")?;
+        let options = load_pool_options(path)?;
+        if let Some(pool) = options.pool {
+            config.pool = pool;
+        }
+        config.solo_percent = options.solo_percent;
+        config.mining_mode = options.mode;
+        config.braiins_account = options.braiins_account;
+        config.f2pool_account = options.f2pool_account;
         ensure!(
             config.version == 1,
             "Unsupported settings version: {}",
@@ -70,6 +91,29 @@ impl Config {
             "Invalid log retention"
         );
         ensure!((1..=100).contains(&self.gpu_load), "Invalid GPU load");
+        ensure!(
+            self.solo_percent <= 100,
+            "Solo percentage must be between 0 and 100"
+        );
+        ensure!(
+            self.pool.supports(self.mining_mode),
+            "Pool does not support the selected mining mode"
+        );
+        if self.pool == Pool::Solopool && self.mining_mode == MiningMode::Pool {
+            ensure!(
+                self.solo_percent < 100,
+                "Pool mode requires less than 100% solo"
+            );
+        }
+        for account in [&self.braiins_account, &self.f2pool_account] {
+            ensure!(
+                account.len() <= 64
+                    && account
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
+                "Pool account must contain only letters, numbers, '-' or '_'"
+            );
+        }
         ensure!(
             self.share_difficulty.is_finite() && (0.000001..=1e12).contains(&self.share_difficulty),
             "Share difficulty must be between 0.000001 and 1000000000000"
@@ -92,8 +136,27 @@ impl Config {
             .parent()
             .context("Settings path has no parent directory")?;
         fs::create_dir_all(parent)?;
+        let mode_path = path.with_file_name("pool-options.json");
+        let mut mode = tempfile::NamedTempFile::new_in(parent)?;
+        mode.write_all(&serde_json::to_vec(&PoolOptions {
+            pool: Some(self.pool),
+            mode: self.mining_mode,
+            solo_percent: self.solo_percent,
+            braiins_account: self.braiins_account.clone(),
+            f2pool_account: self.f2pool_account.clone(),
+        })?)?;
+        mode.as_file().sync_all()?;
+        mode.persist(&mode_path)
+            .context("Unable to save pool options")?;
         let mut file = tempfile::NamedTempFile::new_in(parent)?;
-        file.write_all(toml::to_string_pretty(self)?.as_bytes())?;
+        let mut legacy = self.clone();
+        if !matches!(
+            legacy.pool,
+            Pool::Ckpool | Pool::Braiins | Pool::Solopool | Pool::Public
+        ) {
+            legacy.pool = Pool::Ckpool;
+        }
+        file.write_all(toml::to_string_pretty(&legacy)?.as_bytes())?;
         file.as_file().sync_all()?;
         file.persist(path).context("Unable to save settings")?;
         Ok(())
@@ -119,11 +182,36 @@ mod tests {
         for pool in Pool::ALL {
             Config {
                 pool,
+                mining_mode: if pool.supports(MiningMode::Solo) {
+                    MiningMode::Solo
+                } else {
+                    MiningMode::Pool
+                },
+                solo_percent: if pool == Pool::Solopool { 0 } else { 100 },
                 ..Config::default()
             }
             .save(&path)?;
             assert_eq!(Config::load(&path)?.pool, pool);
         }
+        Ok(())
+    }
+    #[test]
+    fn shared_pool_options_keep_legacy_settings_readable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("config.toml");
+        let config = Config {
+            pool: Pool::BraiinsPool,
+            mining_mode: MiningMode::Pool,
+            braiins_account: "worker_account".into(),
+            bitcoin_address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
+            ..Config::default()
+        };
+        config.save(&path)?;
+        let old: Config = toml::from_str(&fs::read_to_string(&path)?)?;
+        assert_eq!(old.pool, Pool::Ckpool);
+        assert_eq!(old.bitcoin_address, config.bitcoin_address);
+        assert_eq!(Config::load(&path)?, config);
+        assert_eq!(config.mining_username()?, "worker_account.mac");
         Ok(())
     }
 
@@ -204,6 +292,62 @@ mod preference_tests {
 fn default_share_difficulty() -> f64 {
     1.0
 }
+fn default_solo_percent() -> u8 {
+    100
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct PoolOptions {
+    pool: Option<Pool>,
+    mode: MiningMode,
+    solo_percent: u8,
+    braiins_account: String,
+    f2pool_account: String,
+}
+impl Default for PoolOptions {
+    fn default() -> Self {
+        Self {
+            pool: None,
+            mode: MiningMode::Solo,
+            solo_percent: 100,
+            braiins_account: String::new(),
+            f2pool_account: String::new(),
+        }
+    }
+}
+fn load_pool_options(path: &Path) -> Result<PoolOptions> {
+    match fs::read(path.with_file_name("pool-options.json")) {
+        Ok(bytes) => serde_json::from_slice(&bytes).context("Invalid pool options"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(PoolOptions::default()),
+        Err(error) => Err(error).context("Unable to read pool options"),
+    }
+}
+impl Config {
+    pub fn endpoint(&self) -> &'static str {
+        self.pool.endpoint_for(self.mining_mode)
+    }
+    pub fn requires_address(&self) -> bool {
+        !self.pool.needs_account()
+    }
+    pub fn mining_username(&self) -> Result<String> {
+        if self.requires_address() {
+            validate_address(&self.bitcoin_address)?;
+            Ok(format!("{}.mac", self.bitcoin_address))
+        } else {
+            let account = match self.pool {
+                Pool::BraiinsPool => &self.braiins_account,
+                Pool::F2pool => &self.f2pool_account,
+                _ => unreachable!(),
+            };
+            ensure!(
+                !account.is_empty(),
+                "Enter the {} account name",
+                self.pool.name()
+            );
+            Ok(format!("{account}.mac"))
+        }
+    }
+}
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NotificationSettings {
@@ -254,6 +398,39 @@ mod option_tests {
         assert_eq!(old.share_difficulty, 1.0);
         assert!(!old.notifications.enabled());
     }
+    #[test]
+    fn solopool_mix_round_trips_without_changing_legacy_toml() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "version=1\npool='solopool'\nshare_difficulty=5")?;
+        let mut config = Config::load(&path)?;
+        assert_eq!(config.solo_percent, 100);
+        config.mining_mode = MiningMode::Pool;
+        for percent in [0, 37] {
+            config.solo_percent = percent;
+            config.save(&path)?;
+            assert_eq!(Config::load(&path)?.solo_percent, percent);
+            assert!(!fs::read_to_string(&path)?.contains("solo_percent"));
+        }
+        config.mining_mode = MiningMode::Solo;
+        config.solo_percent = 100;
+        config.save(&path)?;
+        let mut changed = config.clone();
+        changed.solo_percent = 37;
+        assert!(config.mining_changed(&changed));
+        changed.pool = Pool::Public;
+        config.pool = Pool::Public;
+        assert!(!config.mining_changed(&changed));
+        config.solo_percent = 101;
+        assert!(config.save(&path).is_err());
+        assert_eq!(Config::load(&path)?.solo_percent, 100);
+        fs::write(
+            path.with_file_name("pool-options.json"),
+            r#"{"solo_percent":101}"#,
+        )?;
+        assert!(Config::load(&path).is_err());
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -295,6 +472,10 @@ impl Config {
             || self.gpu_load != other.gpu_load
             || self.gpu_profile != other.gpu_profile
             || self.share_difficulty != other.share_difficulty
+            || self.mining_mode != other.mining_mode
+            || (self.pool == Pool::Solopool && self.solo_percent != other.solo_percent)
+            || (self.pool == Pool::BraiinsPool && self.braiins_account != other.braiins_account)
+            || (self.pool == Pool::F2pool && self.f2pool_account != other.f2pool_account)
     }
 }
 

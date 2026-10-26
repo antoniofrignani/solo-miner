@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Checked live Stratum authorization and job delivery for the existing solo providers, plus OCEAN and OnPool.
+- Added Solo/Pool mode selection, five shared-pool providers and a SoloPool split control.
+- Saved mode, provider and account names outside the legacy TOML settings for updater rollback compatibility.
+- Stopped sending difficulty suggestions to providers that reject or ignore them.
+
 ## 0.8.0
 
 - GitHub update checks, verified downloads and installation from the Updates page.

@@ -71,7 +71,8 @@ fn main() -> anyhow::Result<()> {
     let config = config::Config::load(&path)?;
     if std::env::args().any(|arg| arg == "--check") {
         println!("Settings: {}", path.display());
-        println!("Pool: {} ({})", config.pool.name(), config.pool.endpoint());
+        println!("Pool: {} ({})", config.pool.name(), config.endpoint());
+        println!("Mode: {:?}", config.mining_mode);
         println!("GPU duty cycle: {}%", config.gpu_load);
         println!("GPU workload: {}", config.gpu_profile.label());
         println!(

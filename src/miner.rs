@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, validate_address},
+    config::Config,
     gpu::Gpu,
     pow::{self, Job},
 };
@@ -63,7 +63,7 @@ pub fn spawn(
         let result = (|| {
             config.validate()?;
             if !benchmark {
-                validate_address(&config.bitcoin_address)?;
+                config.mining_username()?;
             }
             notify(Stats {
                 state: "Starting GPU…".into(),
@@ -79,7 +79,7 @@ pub fn spawn(
                     gpu: gpu.name.clone(),
                     ..Stats::default()
                 });
-                let result = connect(config.pool.endpoint(), &cancel)
+                let result = connect(config.endpoint(), &cancel)
                     .and_then(|stream| session(stream, &config, &cancel, &gpu.name, &notify, &gpu));
                 if cancel.load(Ordering::Relaxed) {
                     break;
@@ -216,6 +216,7 @@ struct Wire {
     stream: TcpStream,
     input: Vec<u8>,
     output: VecDeque<u8>,
+    closed: bool,
 }
 impl Wire {
     fn new(stream: TcpStream) -> Result<Self> {
@@ -224,6 +225,7 @@ impl Wire {
             stream,
             input: Vec::new(),
             output: VecDeque::new(),
+            closed: false,
         })
     }
     fn send(&mut self, value: Value) -> Result<()> {
@@ -237,6 +239,9 @@ impl Wire {
         Ok(())
     }
     fn poll(&mut self) -> Result<Vec<Value>> {
+        if self.closed {
+            bail!("Pool disconnected");
+        }
         while !self.output.is_empty() {
             let bytes = self.output.make_contiguous();
             match self.stream.write(bytes) {
@@ -252,7 +257,10 @@ impl Wire {
         // Bound network work per loop so stop and hashing cannot be starved by a peer.
         for _ in 0..64 {
             match self.stream.read(&mut bytes) {
-                Ok(0) => bail!("Pool disconnected"),
+                Ok(0) => {
+                    self.closed = true;
+                    break;
+                }
                 Ok(n) => self.input.extend_from_slice(&bytes[..n]),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e.into()),
@@ -265,6 +273,9 @@ impl Wire {
             if line.iter().any(|b| !b.is_ascii_whitespace()) {
                 messages.push(serde_json::from_slice(&line)?);
             }
+        }
+        if self.closed && messages.is_empty() {
+            bail!("Pool disconnected");
         }
         Ok(messages)
     }
@@ -371,12 +382,12 @@ fn session_inner<S: Scanner>(
 ) -> Result<()> {
     let mut wire = Wire::new(stream)?;
     wire.send(json!({"id":1,"method":"mining.subscribe","params":[format!("solo-miner/{}",env!("CARGO_PKG_VERSION"))]}))?;
-    // SoloPool resets difficulty during authorize. Other pools (including Public
-    // Pool) need the suggestion before authorization starts job initialization.
-    if config.pool != crate::pool::Pool::Solopool {
+    // SoloPool resets difficulty during authorize; other supported providers
+    // receive the suggestion before authorization.
+    if config.pool.suggests_difficulty_before_auth() {
         wire.send(difficulty_request(config.share_difficulty))?;
     }
-    let username = format!("{}.mac", config.bitcoin_address);
+    let username = config.mining_username()?;
     let mut subscribed = false;
     let mut authorized = false;
     let mut extra1 = Vec::new();
@@ -462,9 +473,13 @@ fn session_inner<S: Scanner>(
                             "Unsupported extranonce2 size"
                         );
                         subscribed = true;
-                        // SoloPool selects 100% solo mode with password x.
+                        let password = if config.pool == crate::pool::Pool::Solopool {
+                            if config.mining_mode == crate::pool::MiningMode::Solo { "100".into() } else { config.solo_percent.to_string() }
+                        } else {
+                            "x".into()
+                        };
                         wire.send(
-                            json!({"id":2,"method":"mining.authorize","params":[username,"x"]}),
+                            json!({"id":2,"method":"mining.authorize","params":[username,password]}),
                         )?;
                     }
                     Some(2) => {
@@ -474,7 +489,7 @@ fn session_inner<S: Scanner>(
                             message["error"]
                         );
                         authorized = true;
-                        if config.pool == crate::pool::Pool::Solopool {
+                        if config.pool.suggests_difficulty_after_auth() {
                             wire.send(difficulty_request(config.share_difficulty))?;
                         }
                         stats.state = "Waiting for job…".into();
@@ -635,18 +650,45 @@ mod tests {
     };
     #[test]
     fn fragmented_protocol_and_submit() -> Result<()> {
-        fixture(false, crate::pool::Pool::Public)
+        for pool in crate::pool::Pool::ALL {
+            fixture(false, pool, 100)?;
+        }
+        fixture(false, crate::pool::Pool::Onpool, 99)?;
+        Ok(())
+    }
+    #[test]
+    fn last_stratum_frame_survives_tcp_close() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let client = TcpStream::connect(listener.local_addr()?)?;
+        let (mut server, _) = listener.accept()?;
+        server.write_all(b"{\"id\":2,\"result\":true,\"error\":null}\n")?;
+        drop(server);
+        let mut wire = Wire::new(client)?;
+        let mut received = Vec::new();
+        for _ in 0..100 {
+            match wire.poll() {
+                Ok(messages) => received.extend(messages),
+                Err(_) => break,
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0]["result"], true);
+        Ok(())
     }
     #[test]
     #[ignore = "Requires a real Metal GPU; run explicitly on macOS"]
     fn gpu_to_stratum_share() -> Result<()> {
-        fixture(true, crate::pool::Pool::Public)
+        fixture(true, crate::pool::Pool::Public, 100)
     }
     #[test]
     fn solopool_suggests_after_authorization_and_updates_existing_job() -> Result<()> {
-        fixture(false, crate::pool::Pool::Solopool)
+        for percent in [0, 37, 100] {
+            fixture(false, crate::pool::Pool::Solopool, percent)?;
+        }
+        Ok(())
     }
-    fn fixture(use_gpu: bool, pool: crate::pool::Pool) -> Result<()> {
+    fn fixture(use_gpu: bool, pool: crate::pool::Pool, solo_percent: u8) -> Result<()> {
         let gpu = if use_gpu { Some(Gpu::new()?) } else { None };
         let diff = if use_gpu { 1e-6 } else { 1e-12 };
         let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -657,6 +699,14 @@ mod tests {
             bitcoin_address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
             gpu_load: 100,
             pool,
+            mining_mode: if solo_percent < 100 || !pool.supports(crate::pool::MiningMode::Solo) {
+                crate::pool::MiningMode::Pool
+            } else {
+                crate::pool::MiningMode::Solo
+            },
+            solo_percent,
+            braiins_account: "fixture".into(),
+            f2pool_account: "fixture".into(),
             share_difficulty: if pool == crate::pool::Pool::Solopool {
                 2.0
             } else {
@@ -688,7 +738,7 @@ mod tests {
                 }
                 Ok(())
             };
-            if pool != crate::pool::Pool::Solopool {
+            if pool.suggests_difficulty_before_auth() {
                 read_suggestion(&mut reader)?;
             }
             stream.write_all(b"{\"id\":1,\"result\":[[],\"aa\",4],")?;
@@ -697,8 +747,22 @@ mod tests {
             line.clear();
             reader.read_line(&mut line)?;
             let auth: Value = serde_json::from_str(&line)?;
-            assert_eq!(auth["params"][0], "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.mac");
-            assert_eq!(auth["params"][1], "x");
+            assert_eq!(
+                auth["params"][0],
+                if pool.needs_account() {
+                    "fixture.mac"
+                } else {
+                    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.mac"
+                }
+            );
+            assert_eq!(
+                auth["params"][1],
+                if pool == crate::pool::Pool::Solopool {
+                    solo_percent.to_string()
+                } else {
+                    "x".to_string()
+                }
+            );
             if pool == crate::pool::Pool::Solopool {
                 // Real server sequence: initial work before auth reply, then only
                 // a set_difficulty after the post-auth suggestion (no new job).
@@ -714,7 +778,7 @@ mod tests {
                 )?;
             }
             writeln!(stream, "{}", json!({"id":2,"result":true,"error":null}))?;
-            if pool == crate::pool::Pool::Solopool {
+            if pool.suggests_difficulty_after_auth() {
                 read_suggestion(&mut reader)?;
             }
             writeln!(
@@ -830,6 +894,58 @@ mod tests {
             *seen.lock().unwrap() == Some(config.share_difficulty),
             "Requested difficulty not confirmed by production parser"
         );
+        Ok(())
+    }
+    #[test]
+    #[ignore = "Live wallet-pool handshakes; no GPU work or share submissions"]
+    fn wallet_pools_live_handshake() -> Result<()> {
+        use crate::pool::{MiningMode, Pool};
+        let saved = Config::load(&crate::config::config_path()?)?;
+        crate::config::validate_address(&saved.bitcoin_address)?;
+        for (pool, mode) in [
+            (Pool::Ckpool, MiningMode::Solo),
+            (Pool::Braiins, MiningMode::Solo),
+            (Pool::Public, MiningMode::Solo),
+            (Pool::Solopool, MiningMode::Solo),
+            (Pool::Ocean, MiningMode::Pool),
+            (Pool::Onpool, MiningMode::Solo),
+            (Pool::Onpool, MiningMode::Pool),
+        ] {
+            let config = Config {
+                pool,
+                mining_mode: mode,
+                solo_percent: 100,
+                ..saved.clone()
+            };
+            let stop = Arc::new(AtomicBool::new(false));
+            let deadline = stop.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(15));
+                deadline.store(true, Ordering::Relaxed);
+            });
+            let seen = std::sync::atomic::AtomicBool::new(false);
+            let stream = connect(config.endpoint(), &stop)?;
+            session(
+                stream,
+                &config,
+                &stop,
+                "handshake-only",
+                &|stats| {
+                    if stats.state == "Waiting for job…" && stats.share_difficulty.is_some() {
+                        seen.store(true, Ordering::Relaxed);
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                },
+                SyncScan(|_: &[u8; 80], _: &[u8; 32], _, _| Ok(vec![])),
+            )
+            .with_context(|| format!("{} {:?} live handshake", pool.name(), mode))?;
+            ensure!(
+                seen.load(Ordering::Relaxed),
+                "{} did not authorize and deliver a valid job",
+                pool.name()
+            );
+            eprintln!("{} {:?}: authorized, valid job", pool.name(), mode);
+        }
         Ok(())
     }
     #[test]
