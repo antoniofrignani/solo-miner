@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- GitHub update checks, verified downloads and installation from the Updates page.
+- Optional startup checks, restart with mining restored and rollback after failed startup.
+- Separate update preferences preserve compatibility with earlier app settings.
+- Fixed an intermittent CI test that treated the first received TCP byte as a complete difficulty message.
+
 ## 0.7.0
 
 - Two GPU batches in flight with independent output buffers.

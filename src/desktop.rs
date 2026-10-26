@@ -6,8 +6,9 @@ use crate::{
     notifications::Notifications,
     pool::Pool,
     tray::{self, Tray},
+    updater::{self, Prepared, Release},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 use std::{
     collections::VecDeque,
@@ -49,11 +50,35 @@ enum Page {
     Mining,
     Appearance,
     Activity,
+    Updates,
 }
 enum Event {
     Stats(Stats),
     Finished(Option<String>),
     Notification(String),
+    UpdateChecked(std::result::Result<Option<Release>, String>),
+    UpdateProgress(u64, u64),
+    UpdatePrepared(std::result::Result<Box<Prepared>, String>),
+}
+#[derive(Default, PartialEq)]
+enum UpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Downloading,
+    Ready,
+    Waiting,
+}
+#[derive(Default)]
+struct UpdateUi {
+    phase: UpdatePhase,
+    release: Option<Release>,
+    prepared: Option<Prepared>,
+    status: String,
+    downloaded: u64,
+    total: u64,
+    check_at_startup: bool,
+    resume: bool,
 }
 struct Desktop {
     config: Config,
@@ -81,6 +106,7 @@ struct Desktop {
     benchmark_load: u8,
     benchmark_profile: GpuProfile,
     quitting: bool,
+    updates: UpdateUi,
 }
 impl Desktop {
     fn new(cc: &eframe::CreationContext<'_>, config: Config, path: PathBuf) -> Result<Self> {
@@ -115,7 +141,7 @@ impl Desktop {
             difficulty: config.share_difficulty.to_string(),
             draft: config.clone(),
             config,
-            path,
+            path: path.clone(),
             page,
             context,
             tx,
@@ -140,10 +166,26 @@ impl Desktop {
             benchmark_load: 25,
             benchmark_profile: GpuProfile::default(),
             quitting: false,
+            updates: UpdateUi {
+                check_at_startup: std::fs::read(path.with_file_name("updates.json"))
+                    .ok()
+                    .and_then(|v| serde_json::from_slice::<bool>(&v).ok())
+                    .unwrap_or(true),
+                ..Default::default()
+            },
         };
         app.log("App", concat!("Solo Miner ", env!("CARGO_PKG_VERSION")));
         if std::env::args().any(|a| a == "--resume-mining") {
             app.start();
+        }
+        updater::confirm_launch()?;
+        if let Ok(result) = std::fs::read_to_string(app.path.with_file_name("update-result.txt")) {
+            app.log("Update", &result);
+            app.updates.status = result;
+            let _ = std::fs::remove_file(app.path.with_file_name("update-result.txt"));
+        }
+        if app.updates.check_at_startup {
+            app.check_updates();
         }
         Ok(app)
     }
@@ -203,6 +245,9 @@ impl Desktop {
         );
     }
     fn start(&mut self) {
+        if self.updates.phase == UpdatePhase::Waiting {
+            return;
+        }
         if let Err(e) = self
             .config
             .validate()
@@ -243,6 +288,9 @@ impl Desktop {
         Ok(next)
     }
     fn save(&mut self, appearance_only: bool) {
+        if self.updates.phase == UpdatePhase::Waiting {
+            return;
+        }
         let result = if appearance_only {
             let mut next = self.config.clone();
             next.appearance = self.draft.appearance.clone();
@@ -294,6 +342,9 @@ impl Desktop {
         }
     }
     fn benchmark(&mut self) {
+        if self.updates.phase == UpdatePhase::Waiting {
+            return;
+        }
         if self.worker.is_some() {
             return;
         }
@@ -328,6 +379,9 @@ impl Desktop {
         self.context.request_repaint();
     }
     fn quit(&mut self) {
+        if self.updates.phase == UpdatePhase::Waiting {
+            return;
+        }
         self.quitting = true;
         self.lifecycle.stop();
         self.worker.take();
@@ -352,6 +406,34 @@ impl Desktop {
         }
         while let Ok(event) = self.rx.try_recv() {
             match event {
+                Event::UpdateChecked(result) => {
+                    self.updates.phase = UpdatePhase::Idle;
+                    match result {
+                        Ok(release) => {
+                            self.updates.status = release.as_ref().map_or_else(
+                                || "Up to date".into(),
+                                |r| format!("Version {} available", r.version),
+                            );
+                            self.updates.release = release;
+                        }
+                        Err(error) => self.updates.status = error,
+                    }
+                }
+                Event::UpdateProgress(downloaded, total) => {
+                    self.updates.downloaded = downloaded;
+                    self.updates.total = total;
+                }
+                Event::UpdatePrepared(result) => match result {
+                    Ok(prepared) => {
+                        self.updates.prepared = Some(*prepared);
+                        self.updates.phase = UpdatePhase::Ready;
+                        self.updates.status = "Ready to install".into();
+                    }
+                    Err(error) => {
+                        self.updates.phase = UpdatePhase::Idle;
+                        self.updates.status = error;
+                    }
+                },
                 Event::Notification(text) => {
                     self.notification_status = text;
                 }
@@ -418,6 +500,159 @@ impl Desktop {
         }
         self.tray
             .update(&self.config, &self.stats, self.worker.is_some());
+        if self.updates.phase == UpdatePhase::Waiting && self.worker.is_none() {
+            self.finish_update();
+        }
+    }
+    fn updates_page(&mut self, ui: &mut egui::Ui, c: Colors) {
+        card(c).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(concat!("Version ", env!("CARGO_PKG_VERSION")))
+                        .strong()
+                        .size(18.0),
+                );
+                if ui
+                    .add_enabled(
+                        self.updates.phase == UpdatePhase::Idle,
+                        egui::Button::new("Check for updates"),
+                    )
+                    .clicked()
+                {
+                    self.check_updates();
+                }
+            });
+            ui.add_space(8.0);
+            if ui
+                .checkbox(&mut self.updates.check_at_startup, "Check at startup")
+                .changed()
+            {
+                let saved = (|| -> Result<()> {
+                    use std::io::Write;
+                    let mut file = tempfile::NamedTempFile::new_in(
+                        self.path.parent().context("Missing settings folder")?,
+                    )?;
+                    file.write_all(
+                        serde_json::to_string(&self.updates.check_at_startup)?.as_bytes(),
+                    )?;
+                    file.as_file().sync_all()?;
+                    file.persist(self.path.with_file_name("updates.json"))?;
+                    Ok(())
+                })();
+                if let Err(error) = saved {
+                    self.updates.status = format!("Save failed: {error:#}");
+                }
+            }
+            ui.add_space(8.0);
+            ui.label(&self.updates.status);
+            if self.updates.phase == UpdatePhase::Checking {
+                ui.spinner();
+            }
+            if self.updates.phase == UpdatePhase::Downloading {
+                let progress = if self.updates.total > 0 {
+                    self.updates.downloaded as f32 / self.updates.total as f32
+                } else {
+                    0.0
+                };
+                ui.add(
+                    egui::ProgressBar::new(progress)
+                        .show_percentage()
+                        .animate(true),
+                );
+            }
+            if let Some(release) = &self.updates.release {
+                let page = release.page.clone();
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if self.updates.phase == UpdatePhase::Idle
+                        && ui.button("Download update").clicked()
+                    {
+                        self.download_update();
+                    }
+                    if self.updates.phase == UpdatePhase::Ready
+                        && ui.button("Install and restart").clicked()
+                    {
+                        self.install_update();
+                    }
+                    ui.hyperlink_to("Release notes", page);
+                });
+            }
+        });
+    }
+    fn check_updates(&mut self) {
+        if self.updates.phase != UpdatePhase::Idle {
+            return;
+        }
+        self.updates.phase = UpdatePhase::Checking;
+        self.updates.status = "Checking GitHub…".into();
+        let sender = self.tx.clone();
+        let wake = self.context.clone();
+        std::thread::spawn(move || {
+            let result = updater::check().map_err(|e| format!("Check failed: {e:#}"));
+            let _ = sender.send(Event::UpdateChecked(result));
+            wake.request_repaint();
+        });
+    }
+    fn download_update(&mut self) {
+        let Some(release) = self.updates.release.clone() else {
+            return;
+        };
+        if self.updates.phase != UpdatePhase::Idle {
+            return;
+        }
+        self.updates.phase = UpdatePhase::Downloading;
+        self.updates.downloaded = 0;
+        self.updates.total = 0;
+        self.updates.status = "Downloading and verifying…".into();
+        let sender = self.tx.clone();
+        let wake = self.context.clone();
+        std::thread::spawn(move || {
+            let mut last = Instant::now();
+            let result = updater::prepare(release, |downloaded, total| {
+                if last.elapsed() >= Duration::from_millis(100) || downloaded == total {
+                    let _ = sender.send(Event::UpdateProgress(downloaded, total));
+                    wake.request_repaint();
+                    last = Instant::now();
+                }
+            })
+            .map(Box::new)
+            .map_err(|e| format!("Download failed: {e:#}"));
+            let _ = sender.send(Event::UpdatePrepared(result));
+            wake.request_repaint();
+        });
+    }
+    fn install_update(&mut self) {
+        if self.updates.phase != UpdatePhase::Ready {
+            return;
+        }
+        self.updates.resume =
+            self.lifecycle.want_mining && self.lifecycle.work == Some(Work::Mining);
+        self.updates.phase = UpdatePhase::Waiting;
+        self.updates.status = "Stopping mining before update…".into();
+        self.stop();
+        self.context.request_repaint();
+    }
+    fn finish_update(&mut self) {
+        let Some(prepared) = self.updates.prepared.take() else {
+            return;
+        };
+        match prepared.launch(
+            self.updates.resume,
+            self.path.with_file_name("update-result.txt"),
+        ) {
+            Ok(()) => {
+                self.log("Update", "Installing update");
+                self.quitting = true;
+                self.context.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Err(error) => {
+                self.updates.phase = UpdatePhase::Idle;
+                self.updates.status = format!("Install failed: {error:#}");
+                if self.updates.resume {
+                    self.start();
+                }
+            }
+        }
     }
 }
 #[derive(Clone, Copy)]
@@ -604,6 +839,14 @@ impl Desktop {
                     (Page::Mining, "Mining & wallet"),
                     (Page::Appearance, "Appearance"),
                     (Page::Activity, "Activity"),
+                    (
+                        Page::Updates,
+                        if self.updates.release.is_some() {
+                            "Updates •"
+                        } else {
+                            "Updates"
+                        },
+                    ),
                 ] {
                     let active = self.page == page;
                     let button = egui::Button::new(RichText::new(text).color(if active {
@@ -1235,7 +1478,9 @@ impl eframe::App for Desktop {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(c.bg).inner_margin(16))
             .show(ctx, |ui| {
-                self.controls(ui, c);
+                ui.add_enabled_ui(self.updates.phase != UpdatePhase::Waiting, |ui| {
+                    self.controls(ui, c)
+                });
                 if matches!(self.page, Page::Mining | Page::Appearance) {
                     egui::TopBottomPanel::bottom("page_actions")
                         .exact_height(46.0)
@@ -1257,6 +1502,7 @@ impl eframe::App for Desktop {
                         Page::Mining => self.mining_settings(ui, c),
                         Page::Appearance => self.appearance(ui, c),
                         Page::Activity => self.activity(ui, c),
+                        Page::Updates => self.updates_page(ui, c),
                     });
             });
         if self.worker.is_some() {

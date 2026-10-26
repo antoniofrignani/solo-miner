@@ -19,8 +19,18 @@ mod notifications;
 mod startup;
 #[cfg(target_os = "macos")]
 mod tray;
+#[cfg(target_os = "macos")]
+mod updater;
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(plan) = std::env::args_os()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find(|args| args[0] == "--apply-update")
+    {
+        return updater::apply_update(std::path::Path::new(&plan[1]));
+    }
     #[cfg(target_os = "macos")]
     if std::env::args().any(|arg| arg == "--gpu-check") {
         let gpu = gpu::Gpu::new()?;

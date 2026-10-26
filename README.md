@@ -16,6 +16,7 @@ Open **Solo Miner.app**, configure a Bitcoin mainnet reward address, pool, share
 - **Mining & wallet**: settings, notifications and a 3-second benchmark.
 - **Appearance**: light/dark/system mode, theme and accent color.
 - **Activity**: disk log with 7-day, 30-day or unlimited retention.
+- **Updates**: check GitHub releases, download, then install and restart. Optional checks at startup.
 
 Available pools: CKPool Solo, Braiins Solo, SoloPool and Public Pool. **Pool account** opens the statistics page for the configured wallet. Endpoints and Stratum notes: [docs/pools.md](docs/pools.md).
 
@@ -85,3 +86,11 @@ Every push to `main` and every pull request runs formatting, Clippy, tests and a
 A `vX.Y.Z` tag matching the version in `Cargo.toml` publishes a release with the same archives after the build succeeds.
 
 [Changelog](docs/HISTORY.md).
+
+## Updates
+
+The app checks stable releases from this repository. Downloads must match the release SHA-256 checksum, app identity, version and Apple Silicon architecture. The installer stops mining, keeps the previous bundle and waits for the new app to confirm startup. Failed startup restores the previous version. Mining resumes if it was active before installation.
+
+The app folder must be writable. Updates do not request administrator access; move the app to a writable folder if needed. Wallet and mining settings remain in the user directory. Update preferences use a separate `updates.json` file for compatibility with older versions.
+
+Versions before 0.8.0 require a manual installation to gain the updater. [Update implementation and tests](docs/updates.md).
