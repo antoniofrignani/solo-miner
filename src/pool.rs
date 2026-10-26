@@ -42,8 +42,9 @@ impl Pool {
         Self::Public,
         Self::Onpool,
     ];
-    pub const SHARED: [Self; 5] = [
+    pub const SHARED: [Self; 6] = [
         Self::Solopool,
+        Self::Public,
         Self::Ocean,
         Self::Onpool,
         Self::BraiinsPool,
@@ -83,10 +84,10 @@ impl Pool {
         }
     }
     pub fn endpoint_for(self, mode: MiningMode) -> &'static str {
-        if self == Self::Onpool && mode == MiningMode::Solo {
-            "stratum+tcp://btc.onpool.net:3333"
-        } else {
-            self.endpoint()
+        match (self, mode) {
+            (Self::Onpool, MiningMode::Solo) => "stratum+tcp://btc.onpool.net:3333",
+            (Self::Public, MiningMode::Pool) => "stratum+tcp://public-pool.io:13333",
+            _ => self.endpoint(),
         }
     }
 
@@ -155,6 +156,10 @@ mod tests {
         assert_eq!(
             Pool::Onpool.endpoint_for(MiningMode::Pool),
             "stratum+tcp://btc.onpool.net:3344"
+        );
+        assert_eq!(
+            Pool::Public.endpoint_for(MiningMode::Pool),
+            "stratum+tcp://public-pool.io:13333"
         );
         assert_eq!(
             Pool::Onpool.account_url(wallet).unwrap(),

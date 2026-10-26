@@ -18,7 +18,7 @@ Open **Solo Miner.app**, choose Solo or Pool, configure the provider and GPU dut
 - **Activity**: disk log with 7-day, 30-day or unlimited retention.
 - **Updates**: check GitHub releases, download, then install and restart. Optional checks at startup.
 
-Solo providers: CKPool Solo, Braiins Solo, Public Pool, SoloPool and OnPool. Pool providers: SoloPool, OCEAN, OnPool, Braiins Pool and f2pool. SoloPool supports a configurable solo/pool split. Provider endpoints, account requirements and verification: [docs/pools.md](docs/pools.md).
+Solo providers: CKPool Solo, Braiins Solo, Public Pool, SoloPool and OnPool. Pool providers: SoloPool, Public Pool, OCEAN, OnPool, Braiins Pool and f2pool. SoloPool supports a configurable solo/pool split. Provider endpoints, account requirements and verification: [docs/pools.md](docs/pools.md).
 
 Saving changes to the wallet, mode, provider, SoloPool split, difficulty or duty cycle restarts mining. Appearance and notification changes apply without a restart. Closing the window leaves mining active; quit the app from the menu bar or with `⌘Q`.
 

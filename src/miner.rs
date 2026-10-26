@@ -654,6 +654,7 @@ mod tests {
             fixture(false, pool, 100)?;
         }
         fixture(false, crate::pool::Pool::Onpool, 99)?;
+        fixture(false, crate::pool::Pool::Public, 99)?;
         Ok(())
     }
     #[test]
@@ -906,6 +907,7 @@ mod tests {
             (Pool::Ckpool, MiningMode::Solo),
             (Pool::Braiins, MiningMode::Solo),
             (Pool::Public, MiningMode::Solo),
+            (Pool::Public, MiningMode::Pool),
             (Pool::Solopool, MiningMode::Solo),
             (Pool::Ocean, MiningMode::Pool),
             (Pool::Onpool, MiningMode::Solo),

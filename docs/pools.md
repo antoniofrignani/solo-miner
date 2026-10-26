@@ -6,7 +6,7 @@ Select **Solo** or **Pool**, then choose a provider. SoloPool is available in bo
 | --- | --- | --- | --- | --- |
 | CKPool Solo | Yes | — | `stratum.ckpool.org:3333` | Bitcoin address |
 | Braiins Solo | Yes | — | `solo.stratum.braiins.com:3333` | Bitcoin address |
-| Public Pool | Yes | — | `public-pool.io:3333` | Bitcoin address |
+| Public Pool | Yes | Yes | `public-pool.io:3333` (Solo), `:13333` (PPLNS) | Bitcoin address |
 | SoloPool | Yes | Yes | `stratum.solopool.com:3333` | Bitcoin address |
 | OCEAN | — | Yes | `mine.ocean.xyz:3334` | Bitcoin address |
 | OnPool | Yes | Yes | `btc.onpool.net:3333` (Solo), `:3344` (PPLNS) | Bitcoin address |
@@ -34,4 +34,4 @@ SoloPool's split applies per address across workers. Its 2% fee is deducted from
 
 ## Verification
 
-On October 26, 2026, the app's Stratum parser received authorization and valid jobs from CKPool Solo, Braiins Solo, Public Pool, SoloPool, OCEAN, OnPool Solo and OnPool PPLNS. Braiins Pool and f2pool accepted TCP subscription and returned jobs. Braiins Pool rejected an unregistered test account; f2pool returned authorization before account ownership could be confirmed. Registered accounts were unavailable, so payout attribution and accepted real shares were not verified on those providers. No live shares were submitted during these checks. Local fixtures cover authorization, difficulty messages and share submission for every configured provider.
+On October 26, 2026, the app's Stratum parser received authorization and valid jobs from CKPool Solo, Braiins Solo, Public Pool Solo and PPLNS, SoloPool Solo, OCEAN, and OnPool Solo and PPLNS. SoloPool also accepted a `0` split handshake with an isolated test address, without submitting a share or changing the saved wallet's ratio. Braiins Pool and f2pool accepted TCP subscription and returned jobs. Braiins Pool rejected an unregistered test account; f2pool returned authorization before account ownership could be confirmed. Registered accounts were unavailable, so payout attribution and accepted real shares were not verified on those providers. No live shares were submitted during these checks. Local fixtures cover authorization, difficulty messages and share submission for every configured provider; a Metal GPU submitted a share to the local Stratum fixture.
