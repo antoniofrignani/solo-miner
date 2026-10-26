@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.9.1
 
 - Run GitHub Actions only for version tags and use Node.js 24 actions.
+- Show the build status in the README.
 
 ## 0.9.0
 
